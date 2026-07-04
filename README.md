@@ -5,11 +5,12 @@ markets (BTC, ETH, SOL, ZEC, HYPE, XRP, DOGE, BNB, NEAR) in parallel with
 per-asset strategies, measures each independently, and ranks them by
 predictability and profit/loss ratio.
 
-**Current phase: 1 of 12** — Kalshi API client, auth, and series discovery.
-Later phases (per the development order): price feeds + tape recording, fill
-simulator + replay engine, historical analysis, smart-money signal, shadow
-trading loop, evaluation framework, Claude decision engine, dashboard, n8n +
-dead man's switch, deployment.
+**Current phase: 2 of 12** — observation mode: price feeds, feature engine,
+and tape recording (no trading). Completed: Kalshi client + auth + discovery
+(1). Next: fill simulator + replay engine (3), historical analysis (4),
+smart-money signal (5), shadow trading loop (6), evaluation framework (7),
+Claude decision engine (8), dashboard (9), n8n + dead man's switch (10),
+deployment (11), 2-week shadow campaign (12).
 
 ## Modes (SHADOW / DEMO / LIVE)
 
@@ -43,7 +44,7 @@ Auth is RSA-PSS: each request sends the key ID, a millisecond timestamp, and a
 base64 RSA-PSS-SHA256 signature over `timestamp + METHOD + path` (query string
 excluded). Implemented in `src/kalshibot/kalshi/auth.py`.
 
-## Phase-1 usage
+## Usage
 
 ```bash
 # Verify auth: local signature proof without keys; live balance call with keys
@@ -52,9 +53,25 @@ python scripts/check_auth.py --env demo
 # Discover 15-minute series for all nine assets (production, public, no keys)
 python scripts/discover_series.py
 
+# Order plumbing check against the demo exchange (needs funded demo account)
+python scripts/demo_order_plumbing.py
+
+# Observation mode: record spot ticks, Kalshi books/trades/settlements, and
+# feature snapshots for all assets to data/kalshibot.db — no trading
+python scripts/run_observer.py                                # foreground
+nohup python scripts/run_observer.py >> logs/observer.log 2>&1 &   # detached
+
 # Tests
 pytest
 ```
+
+### Spot feed venues
+
+Coinbase Exchange WS is the primary reference feed: it lists all nine assets
+(including HYPE-USD and BNB-USD) and is a CF Benchmarks constituent exchange —
+the same index family Kalshi uses for settlement. Binance.US is the automatic
+per-asset backup (binance.com geo-blocks US IPs). Failover picks the freshest
+venue at read time and never mixes ticks from two venues in one return series.
 
 Discovery never hardcodes series tickers: it lists Crypto-category series,
 filters `frequency == "fifteen_min"`, maps assets by ticker pattern with a

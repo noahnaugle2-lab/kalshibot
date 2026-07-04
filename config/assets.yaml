@@ -3,6 +3,12 @@
 # cached in data/discovery/series_map.json. An asset with no live 15-minute
 # series is logged and skipped until discovery finds one.
 #
+# Spot feed venues (verified 2026-07-04): Coinbase Exchange is PRIMARY — it
+# lists all nine assets (incl. HYPE-USD, BNB-USD) and is a CF Benchmarks
+# constituent exchange, the index family Kalshi settles against. Binance.US
+# is the BACKUP (binance.com geo-blocks US IPs with HTTP 451);
+# spot_symbol_binance refers to Binance.US symbols.
+#
 # strategy / params / edge thresholds get filled in during the strategy phase;
 # the keys exist now so the schema is stable from day one.
 
@@ -33,7 +39,7 @@ assets:
     edge_threshold_cents: 5      # thin book: higher bar to clear slippage
   HYPE:
     spot_symbol_binance: HYPEUSDT
-    spot_symbol_coinbase: null   # not on Coinbase; Binance only (documented)
+    spot_symbol_coinbase: HYPE-USD
     edge_threshold_cents: 5
   XRP:
     spot_symbol_binance: XRPUSDT
@@ -43,7 +49,7 @@ assets:
     spot_symbol_coinbase: DOGE-USD
   BNB:
     spot_symbol_binance: BNBUSDT
-    spot_symbol_coinbase: null   # not on Coinbase; Binance only (documented)
+    spot_symbol_coinbase: BNB-USD
   NEAR:
     spot_symbol_binance: NEARUSDT
     spot_symbol_coinbase: NEAR-USD
