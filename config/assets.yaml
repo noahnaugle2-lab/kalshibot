@@ -1,0 +1,50 @@
+# Per-asset configuration. Series tickers are NOT hardcoded here — they are
+# discovered daily from the Kalshi API (see kalshibot.kalshi.discovery) and
+# cached in data/discovery/series_map.json. An asset with no live 15-minute
+# series is logged and skipped until discovery finds one.
+#
+# strategy / params / edge thresholds get filled in during the strategy phase;
+# the keys exist now so the schema is stable from day one.
+
+defaults:
+  enabled: true
+  paused: false
+  capital_allocation: equal      # equal notional per asset during evaluation
+  edge_threshold_cents: 3        # min edge after spread+fees to enter
+  max_position_contracts: 100
+  strategy: null                 # assigned in strategy phase
+  strategy_params: {}
+  smart_money_weight: 0.0        # confidence modifier weight, 0 = off
+  late_window_enabled: false     # never trade final 90s unless true
+
+assets:
+  BTC:
+    spot_symbol_binance: BTCUSDT
+    spot_symbol_coinbase: BTC-USD
+  ETH:
+    spot_symbol_binance: ETHUSDT
+    spot_symbol_coinbase: ETH-USD
+  SOL:
+    spot_symbol_binance: SOLUSDT
+    spot_symbol_coinbase: SOL-USD
+  ZEC:
+    spot_symbol_binance: ZECUSDT
+    spot_symbol_coinbase: ZEC-USD
+    edge_threshold_cents: 5      # thin book: higher bar to clear slippage
+  HYPE:
+    spot_symbol_binance: HYPEUSDT
+    spot_symbol_coinbase: null   # not on Coinbase; Binance only (documented)
+    edge_threshold_cents: 5
+  XRP:
+    spot_symbol_binance: XRPUSDT
+    spot_symbol_coinbase: XRP-USD
+  DOGE:
+    spot_symbol_binance: DOGEUSDT
+    spot_symbol_coinbase: DOGE-USD
+  BNB:
+    spot_symbol_binance: BNBUSDT
+    spot_symbol_coinbase: null   # not on Coinbase; Binance only (documented)
+  NEAR:
+    spot_symbol_binance: NEARUSDT
+    spot_symbol_coinbase: NEAR-USD
+    edge_threshold_cents: 5

@@ -1,0 +1,22 @@
+# Secrets — never commit
+.env
+*.pem
+*.key
+secrets/
+
+# Data & runtime artifacts
+data/
+*.db
+*.sqlite3
+*.parquet
+logs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
