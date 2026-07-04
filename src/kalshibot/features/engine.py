@@ -18,7 +18,7 @@ from kalshibot.features.fees import fee_per_contract
 from kalshibot.features.window import TickWindow
 from kalshibot.kalshi.models import Market, Orderbook
 
-FEATURE_SCHEMA_VERSION = 1
+FEATURE_SCHEMA_VERSION = 2  # v2: added smart_lean / smart_strength
 
 WINDOW_SECONDS = 15 * 60
 SETTLEMENT_BLACKOUT_SECONDS = 90
@@ -84,6 +84,10 @@ class FeatureSnapshot(BaseModel):
     depth_no_within_2c: float | None = None
     flow_imbalance: float | None = None  # (yes-no)/(yes+no) depth near touch
     book_age_seconds: float | None = None  # repricing-lag proxy
+
+    # smart money (set by the trader's enrichment hook; None in pure observation)
+    smart_lean: str | None = None
+    smart_strength: float | None = None
 
     # model vs market
     model_prob: float | None = None  # P(settle YES) from spot dist + vol + time

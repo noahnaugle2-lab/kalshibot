@@ -18,39 +18,77 @@ defaults:
   capital_allocation: equal      # equal notional per asset during evaluation
   edge_threshold_cents: 3        # min edge after spread+fees to enter
   max_position_contracts: 100
-  strategy: null                 # assigned in strategy phase
+  strategy: null
   strategy_params: {}
-  smart_money_weight: 0.0        # confidence modifier weight, 0 = off
+  smart_money_weight: 0.0        # confidence modifier weight, 0 = off during
+                                 # early evaluation so its contribution is
+                                 # measured (with/without) before it has power
   late_window_enabled: false     # never trade final 90s unless true
+
+# risk layer (deterministic, final authority — see orders/risk.py)
+risk:
+  bankroll_usd: 1000
+  max_bankroll_fraction_per_trade: 0.05
+  max_position_contracts: 100
+  max_daily_loss_per_asset_usd: 20
+  max_daily_loss_global_usd: 100
+  depth_cap_fraction: 0.25       # thin-market footprint control
+  settlement_blackout_s: 90
+
+# event blackout calendar: no new entries for affected assets in the window.
+# Times are UTC ISO-8601. assets: [] means all assets.
+# - label: "CPI print"
+#   start: "2026-07-15 12:15:00"
+#   end:   "2026-07-15 13:00:00"
+#   assets: []
+blackouts: []
 
 assets:
   BTC:
     spot_symbol_binance: BTCUSDT
     spot_symbol_coinbase: BTC-USD
+    strategy: latency_momentum
+    strategy_params: {move_vol_mult: 3.0, edge_threshold: 0.02, contracts: 10}
   ETH:
     spot_symbol_binance: ETHUSDT
     spot_symbol_coinbase: ETH-USD
+    strategy: latency_momentum
+    strategy_params: {move_vol_mult: 3.0, edge_threshold: 0.02, contracts: 10}
   SOL:
     spot_symbol_binance: SOLUSDT
     spot_symbol_coinbase: SOL-USD
+    strategy: cross_asset_lead_lag
+    strategy_params: {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10}
   ZEC:
     spot_symbol_binance: ZECUSDT
     spot_symbol_coinbase: ZEC-USD
     edge_threshold_cents: 5      # thin book: higher bar to clear slippage
+    strategy: thin_book_maker
+    strategy_params: {min_spread_cents: 3.0, model_margin: 0.03, contracts: 10}
   HYPE:
     spot_symbol_binance: HYPEUSDT
     spot_symbol_coinbase: HYPE-USD
     edge_threshold_cents: 5
+    strategy: thin_book_maker
+    strategy_params: {min_spread_cents: 3.0, model_margin: 0.03, contracts: 10}
   XRP:
     spot_symbol_binance: XRPUSDT
     spot_symbol_coinbase: XRP-USD
+    strategy: cross_asset_lead_lag
+    strategy_params: {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10}
   DOGE:
     spot_symbol_binance: DOGEUSDT
     spot_symbol_coinbase: DOGE-USD
+    strategy: cross_asset_lead_lag
+    strategy_params: {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10}
   BNB:
     spot_symbol_binance: BNBUSDT
     spot_symbol_coinbase: BNB-USD
+    strategy: cross_asset_lead_lag
+    strategy_params: {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10}
   NEAR:
     spot_symbol_binance: NEARUSDT
     spot_symbol_coinbase: NEAR-USD
     edge_threshold_cents: 5
+    strategy: thin_book_maker
+    strategy_params: {min_spread_cents: 3.0, model_margin: 0.03, contracts: 10}

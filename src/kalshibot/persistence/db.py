@@ -229,6 +229,19 @@ CREATE TABLE IF NOT EXISTS wallet_window_results (
 );
 CREATE INDEX IF NOT EXISTS idx_wwr_wallet ON wallet_window_results(wallet);
 
+CREATE TABLE IF NOT EXISTS daily_pnl (
+    date TEXT NOT NULL,           -- UTC YYYY-MM-DD
+    asset TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    trades INTEGER DEFAULT 0,
+    wins INTEGER DEFAULT 0,
+    pnl_gross REAL DEFAULT 0,
+    pnl_net REAL DEFAULT 0,
+    fees REAL DEFAULT 0,
+    updated_ts REAL NOT NULL,
+    PRIMARY KEY (date, asset, strategy)
+);
+
 CREATE TABLE IF NOT EXISTS smart_wallets (
     wallet TEXT PRIMARY KEY,
     n INTEGER NOT NULL,

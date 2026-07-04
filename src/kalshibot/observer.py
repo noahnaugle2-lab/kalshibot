@@ -101,6 +101,7 @@ class Observer:
                 ("status", self._status_loop()),
                 ("discovery_refresh", self._discovery_refresh_loop()),
                 ("clock", self._clock_loop()),
+                *[(f"extra_{i}", t) for i, t in enumerate(self.extra_tasks())],
             ]
         ]
         await self._stop.wait()
@@ -114,6 +115,19 @@ class Observer:
 
     def request_stop(self) -> None:
         self._stop.set()
+
+    # ------------------------------------------------- subclass hooks (trader)
+
+    def enrich_snapshot(self, asset: str, snap):  # noqa: ANN001 - FeatureSnapshot
+        """Called before the snapshot is persisted; trader attaches smart money."""
+        return snap
+
+    def on_snapshot(self, asset: str, snap) -> None:  # noqa: ANN001
+        """Called after persistence; the shadow trader trades here. No-op."""
+
+    def extra_tasks(self) -> list:
+        """Additional background coroutines for subclasses."""
+        return []
 
     # ------------------------------------------------------------- recording
 
@@ -158,7 +172,9 @@ class Observer:
                         btc_window=btc_window if asset != "BTC" else None,
                         btc_implied_prob=btc_implied if asset != "BTC" else None,
                     )
+                    snap = self.enrich_snapshot(asset, snap)
                     self.db.add("signals", snap.to_row())
+                    self.on_snapshot(asset, snap)
                 except Exception as exc:
                     logger.error("%s: feature computation failed: %s", asset, exc)
 

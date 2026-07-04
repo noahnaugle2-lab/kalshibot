@@ -67,3 +67,43 @@ def load_asset_configs(path: Path | None = None) -> dict[str, AssetConfig]:
         merged = {**defaults, **(overrides or {}), "symbol": symbol}
         configs[symbol] = AssetConfig.model_validate(merged)
     return configs
+
+
+def load_risk(path: Path | None = None):
+    """Build the RiskManager from the risk + blackouts sections of assets.yaml."""
+    from datetime import datetime, timezone
+
+    from kalshibot.orders.risk import BlackoutEvent, RiskConfig, RiskManager
+
+    path = path or PROJECT_ROOT / "config" / "assets.yaml"
+    raw = yaml.safe_load(path.read_text())
+    risk_raw = raw.get("risk") or {}
+    config = RiskConfig(
+        bankroll_usd=risk_raw.get("bankroll_usd", 1000),
+        n_assets=len(raw.get("assets") or {}) or 9,
+        max_bankroll_fraction_per_trade=risk_raw.get("max_bankroll_fraction_per_trade", 0.05),
+        max_position_contracts=risk_raw.get("max_position_contracts", 100),
+        max_daily_loss_per_asset_usd=risk_raw.get("max_daily_loss_per_asset_usd", 20),
+        max_daily_loss_global_usd=risk_raw.get("max_daily_loss_global_usd", 100),
+        depth_cap_fraction=risk_raw.get("depth_cap_fraction", 0.25),
+        settlement_blackout_s=risk_raw.get("settlement_blackout_s", 90),
+    )
+
+    def to_ts(v: Any) -> float:
+        if isinstance(v, (int, float)):
+            return float(v)
+        dt = datetime.fromisoformat(str(v))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+
+    blackouts = [
+        BlackoutEvent(
+            label=b.get("label", "event"),
+            start_ts=to_ts(b["start"]),
+            end_ts=to_ts(b["end"]),
+            assets=b.get("assets") or [],
+        )
+        for b in (raw.get("blackouts") or [])
+    ]
+    return RiskManager(config=config, blackouts=blackouts)
