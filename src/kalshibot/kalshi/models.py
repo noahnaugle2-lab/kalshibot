@@ -9,6 +9,7 @@ break parsing; raw payloads are also persisted verbatim by the tape recorder.
 
 from __future__ import annotations
 
+import enum
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
@@ -172,22 +173,104 @@ class Balance(KalshiModel):
         return None
 
 
+class OrderIntent(str, enum.Enum):
+    """Trader-level intent; converted to the YES-leg bid/ask wire format."""
+
+    BUY_YES = "BUY_YES"
+    BUY_NO = "BUY_NO"
+    SELL_YES = "SELL_YES"
+    SELL_NO = "SELL_NO"
+
+
 class OrderRequest(KalshiModel):
-    """Body for POST /portfolio/orders. Prices are integer cents."""
+    """Body for POST /portfolio/events/orders (order API V2, mandatory since
+    2026-05-06; the legacy /portfolio/orders create endpoint returns 410).
+
+    V2 quotes the YES leg only: side "bid" buys YES, side "ask" sells YES
+    (economically, buying NO at p is an ask at 1-p). count and price are
+    fixed-point decimal strings. Build via from_intent() so strategy code
+    never handles the inversion by hand.
+    """
 
     ticker: str
-    client_order_id: str
-    side: Literal["yes", "no"]
-    action: Literal["buy", "sell"]
-    count: int
-    type: Literal["limit", "market"] = "limit"
-    yes_price: int | None = None
-    no_price: int | None = None
-    expiration_ts: int | None = None
+    side: Literal["bid", "ask"]
+    count: str
+    price: str
+    time_in_force: Literal[
+        "good_till_canceled", "immediate_or_cancel", "fill_or_kill"
+    ] = "good_till_canceled"
+    self_trade_prevention_type: Literal["taker_at_cross", "maker"] = "taker_at_cross"
+    client_order_id: str | None = None
+    expiration_time: int | None = None
     post_only: bool | None = None
+    reduce_only: bool | None = None
+    cancel_order_on_pause: bool | None = None
+
+    @classmethod
+    def from_intent(
+        cls,
+        ticker: str,
+        intent: OrderIntent,
+        contracts: Decimal | int | str,
+        price: Decimal | str,
+        *,
+        client_order_id: str | None = None,
+        **kwargs: Any,
+    ) -> "OrderRequest":
+        """Build a V2 order from trader intent.
+
+        `price` is in the intent's own terms (a NO price for BUY_NO/SELL_NO)
+        as dollars, e.g. Decimal("0.03"). Conversion to the YES leg happens
+        here and nowhere else.
+        """
+        p = Decimal(str(price))
+        if not Decimal("0") < p < Decimal("1"):
+            raise ValueError(f"price must be in (0, 1) dollars, got {p}")
+        if intent in (OrderIntent.BUY_YES, OrderIntent.SELL_YES):
+            side = "bid" if intent is OrderIntent.BUY_YES else "ask"
+            yes_price = p
+        else:  # NO intents: invert to the YES leg
+            side = "ask" if intent is OrderIntent.BUY_NO else "bid"
+            yes_price = Decimal(1) - p
+        return cls(
+            ticker=ticker,
+            side=side,
+            count=f"{Decimal(str(contracts)):.2f}",
+            price=f"{yes_price:.4f}",
+            client_order_id=client_order_id,
+            **kwargs,
+        )
 
     def body(self) -> dict[str, Any]:
         return self.model_dump(exclude_none=True)
+
+
+class OrderResponse(KalshiModel):
+    """Response from POST /portfolio/events/orders."""
+
+    order_id: str
+    client_order_id: str = ""
+    fill_count: Decimal | None = None
+    remaining_count: Decimal | None = None
+    average_fill_price: Decimal | None = None
+    average_fee_paid: Decimal | None = None
+    ts_ms: int | None = None
+
+    _money = field_validator(
+        "fill_count", "remaining_count", "average_fill_price", "average_fee_paid",
+        mode="before",
+    )(_to_decimal)
+
+
+class CancelResponse(KalshiModel):
+    """Response from DELETE /portfolio/events/orders/{order_id}."""
+
+    order_id: str
+    client_order_id: str = ""
+    reduced_by: Decimal | None = None
+    ts_ms: int | None = None
+
+    _money = field_validator("reduced_by", mode="before")(_to_decimal)
 
 
 class Order(KalshiModel):

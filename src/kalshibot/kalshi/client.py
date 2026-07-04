@@ -19,11 +19,13 @@ import httpx
 from kalshibot.kalshi.auth import KalshiSigner
 from kalshibot.kalshi.models import (
     Balance,
+    CancelResponse,
     Fill,
     Market,
     Order,
     Orderbook,
     OrderRequest,
+    OrderResponse,
     Series,
     Settlement,
 )
@@ -208,21 +210,25 @@ class KalshiClient:
         )
         return [Settlement.model_validate(s) for s in data.get("settlements") or []]
 
-    async def place_order(self, order: OrderRequest) -> Order:
+    async def place_order(self, order: OrderRequest) -> OrderResponse:
+        """Create an order via the V2 endpoint (legacy create 410s since 2026-05)."""
         data = await self._request(
             "POST",
-            "/portfolio/orders",
+            "/portfolio/events/orders",
             json_body=order.body(),
             auth_required=True,
             write=True,
         )
-        return Order.model_validate(data.get("order") or data)
+        return OrderResponse.model_validate(data.get("order") or data)
 
-    async def cancel_order(self, order_id: str) -> Order:
+    async def cancel_order(self, order_id: str) -> CancelResponse:
         data = await self._request(
-            "DELETE", f"/portfolio/orders/{order_id}", auth_required=True, write=True
+            "DELETE",
+            f"/portfolio/events/orders/{order_id}",
+            auth_required=True,
+            write=True,
         )
-        return Order.model_validate(data.get("order") or data)
+        return CancelResponse.model_validate(data.get("order") or data)
 
     async def get_orders(self, **params: Any) -> list[Order]:
         data = await self._request(
