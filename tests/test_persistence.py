@@ -59,3 +59,27 @@ def test_write_now_upserts(db):
 
 def test_counts(db):
     assert db.counts()["spot_ticks"] == 0
+
+
+def test_unsettled_markets_sweep(db):
+    def market(ticker, close_ts):
+        return {
+            "ticker": ticker, "asset": "BTC", "series_ticker": "KXBTC15M",
+            "open_ts": close_ts - 900, "close_ts": close_ts,
+            "floor_strike": 100.0, "expiration_value": None,
+            "result": "", "status": "active", "raw": "{}", "updated_at": 1.0,
+        }
+
+    now = 10_000.0
+    db.write_now("markets", market("M-CLOSED-UNSETTLED", now - 300))
+    db.write_now("markets", market("M-CLOSED-SETTLED", now - 600))
+    db.write_now("markets", market("M-STILL-OPEN", now + 600))
+    db.write_now("settlements", {
+        "market_ticker": "M-CLOSED-SETTLED", "asset": "BTC", "result": "yes",
+        "floor_strike": 100.0, "expiration_value": 101.0,
+        "open_ts": now - 1500, "close_ts": now - 600,
+        "recorded_ts": now, "consistent": 1,
+    })
+    # only the closed-but-unsettled market is due for the sweep
+    assert db.unsettled_markets("BTC", closed_before_ts=now - 60) == ["M-CLOSED-UNSETTLED"]
+    assert db.unsettled_markets("ETH", closed_before_ts=now - 60) == []

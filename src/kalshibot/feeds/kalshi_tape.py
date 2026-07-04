@@ -56,7 +56,6 @@ class AssetTapeRecorder:
         self.current_market: Market | None = None
         self.latest_book: Orderbook | None = None
         self.latest_book_ts: float | None = None
-        self._pending_settlement: list[str] = []
 
     # ------------------------------------------------------------ market roll
 
@@ -81,8 +80,6 @@ class AssetTapeRecorder:
             return
         market = min(live, key=lambda m: m.close_time)  # type: ignore[arg-type,return-value]
         if self.current_market is None or market.ticker != self.current_market.ticker:
-            if self.current_market is not None:
-                self._pending_settlement.append(self.current_market.ticker)
             self.current_market = market
             self.latest_book = None
             self.latest_book_ts = None
@@ -129,7 +126,9 @@ class AssetTapeRecorder:
                 else None
             )
             if close is None:
-                await asyncio.sleep(30)
+                # between windows (next market not yet listed): retry fast so
+                # strategies that act early in the window don't lose time
+                await asyncio.sleep(5)
             else:
                 await asyncio.sleep(max(1.0, close - time.time() + MARKET_ROLL_GRACE))
             await self._refresh_market()
@@ -199,38 +198,48 @@ class AssetTapeRecorder:
             await asyncio.sleep(self.trades_interval)
 
     async def _settlement_loop(self) -> None:
+        """Sweep: any recorded market that closed >60s ago and has no
+        settlements row gets fetched until it settles. DB-driven, so it
+        survives restarts and backfills windows missed at rollover."""
         while True:
             await asyncio.sleep(SETTLEMENT_CHECK_DELAY)
-            still_pending: list[str] = []
-            for ticker in self._pending_settlement:
+            try:
+                tickers = await asyncio.to_thread(
+                    self.db.unsettled_markets, self.asset, time.time() - 60
+                )
+            except Exception as exc:
+                logger.error("%s: unsettled-markets query failed: %s", self.asset, exc)
+                continue
+            for ticker in tickers:
                 try:
                     market = await self.client.get_market(ticker)
-                except KalshiAPIError as exc:
-                    logger.warning("%s: settlement fetch %s failed: %s", self.asset, ticker, exc)
-                    still_pending.append(ticker)
-                    continue
-                if not market.is_settled:
-                    still_pending.append(ticker)
-                    continue
-                consistent = market.settlement_consistent()
-                self.db.write_now("settlements", {
-                    "market_ticker": ticker,
-                    "asset": self.asset,
-                    "result": market.result,
-                    "floor_strike": float(market.floor_strike)
-                    if market.floor_strike is not None else None,
-                    "expiration_value": float(market.expiration_value)
-                    if market.expiration_value is not None else None,
-                    "open_ts": market.open_time.timestamp() if market.open_time else None,
-                    "close_ts": market.close_time.timestamp() if market.close_time else None,
-                    "recorded_ts": time.time(),
-                    "consistent": None if consistent is None else int(consistent),
-                })
-                self.db.add("markets", self._market_row(market))
-                if consistent is False:
-                    logger.error(
-                        "%s: settlement INCONSISTENT for %s: result=%s strike=%s exp=%s",
-                        self.asset, ticker, market.result,
-                        market.floor_strike, market.expiration_value,
+                    if not market.is_settled:
+                        continue  # not finalized yet; next sweep retries
+                    self._record_settlement(market)
+                except Exception as exc:
+                    logger.warning(
+                        "%s: settlement fetch %s failed: %s", self.asset, ticker, exc
                     )
-            self._pending_settlement = still_pending
+
+    def _record_settlement(self, market: Market) -> None:
+        consistent = market.settlement_consistent()
+        self.db.write_now("settlements", {
+            "market_ticker": market.ticker,
+            "asset": self.asset,
+            "result": market.result,
+            "floor_strike": float(market.floor_strike)
+            if market.floor_strike is not None else None,
+            "expiration_value": float(market.expiration_value)
+            if market.expiration_value is not None else None,
+            "open_ts": market.open_time.timestamp() if market.open_time else None,
+            "close_ts": market.close_time.timestamp() if market.close_time else None,
+            "recorded_ts": time.time(),
+            "consistent": None if consistent is None else int(consistent),
+        })
+        self.db.add("markets", self._market_row(market))
+        if consistent is False:
+            logger.error(
+                "%s: settlement INCONSISTENT for %s: result=%s strike=%s exp=%s",
+                self.asset, market.ticker, market.result,
+                market.floor_strike, market.expiration_value,
+            )

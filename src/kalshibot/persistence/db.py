@@ -112,6 +112,54 @@ CREATE TABLE IF NOT EXISTS signals (
 );
 CREATE INDEX IF NOT EXISTS idx_signals_asset_ts ON signals(asset, ts);
 CREATE INDEX IF NOT EXISTS idx_signals_market ON signals(market_ticker);
+
+CREATE TABLE IF NOT EXISTS sim_runs (
+    run_id TEXT PRIMARY KEY,
+    created_ts REAL NOT NULL,
+    kind TEXT NOT NULL,           -- 'replay' | 'shadow'
+    asset TEXT NOT NULL,
+    strategy TEXT NOT NULL,       -- Strategy.params_key(): name:version:params
+    params TEXT NOT NULL,         -- JSON
+    latency_ms REAL,
+    seed INTEGER,
+    tape_start REAL,
+    tape_end REAL,
+    windows INTEGER,
+    summary TEXT                  -- JSON aggregates
+);
+
+CREATE TABLE IF NOT EXISTS sim_fills (
+    id INTEGER PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    price REAL NOT NULL,          -- in the intent's own terms
+    contracts REAL NOT NULL,
+    fee REAL NOT NULL,
+    liquidity TEXT NOT NULL,
+    reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sim_fills_run ON sim_fills(run_id);
+
+CREATE TABLE IF NOT EXISTS sim_positions (
+    id INTEGER PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    side TEXT NOT NULL,
+    contracts REAL NOT NULL,
+    avg_price REAL NOT NULL,
+    fees REAL NOT NULL,
+    entry_ts REAL,
+    entry_regime TEXT,
+    result TEXT,
+    payout_per_contract REAL,
+    pnl_gross REAL,
+    pnl_net REAL
+);
+CREATE INDEX IF NOT EXISTS idx_sim_positions_run ON sim_positions(run_id);
 """
 
 
@@ -199,6 +247,21 @@ class Database:
             return conn.execute(sql, params).fetchall()
         finally:
             conn.close()
+
+    def unsettled_markets(self, asset: str, closed_before_ts: float, limit: int = 20) -> list[str]:
+        """Tickers recorded for this asset that closed but have no settlement row.
+
+        Drives the settlement sweep: derived from the DB rather than in-memory
+        state, so it survives restarts and heals any window that was missed
+        live (e.g. when the next market wasn't yet listed at rollover).
+        """
+        rows = self.query(
+            "SELECT ticker FROM markets WHERE asset = ? AND close_ts IS NOT NULL "
+            "AND close_ts < ? AND ticker NOT IN (SELECT market_ticker FROM settlements) "
+            "ORDER BY close_ts LIMIT ?",
+            (asset, closed_before_ts, limit),
+        )
+        return [r["ticker"] for r in rows]
 
     def counts(self) -> dict[str, int]:
         tables = ("spot_ticks", "book_snapshots", "trade_tape", "signals",
