@@ -199,6 +199,49 @@ CREATE TABLE IF NOT EXISTS flow_patterns (
     updated_ts REAL NOT NULL,
     PRIMARY KEY (pattern, asset)
 );
+
+CREATE TABLE IF NOT EXISTS polymarket_markets (
+    condition_id TEXT PRIMARY KEY,
+    asset TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    close_ts INTEGER NOT NULL,
+    winner TEXT,                  -- UP | DOWN | NULL
+    liquidity REAL,
+    volume REAL,
+    scanned INTEGER DEFAULT 0,
+    updated_ts REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pm_asset_close ON polymarket_markets(asset, close_ts);
+
+CREATE TABLE IF NOT EXISTS wallet_window_results (
+    id INTEGER PRIMARY KEY,
+    wallet TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    condition_id TEXT NOT NULL,
+    close_ts INTEGER NOT NULL,
+    lean TEXT NOT NULL,
+    won INTEGER NOT NULL,
+    pnl REAL,
+    stake REAL,
+    entry_offset_s REAL,
+    computed_ts REAL NOT NULL,
+    UNIQUE(wallet, condition_id)
+);
+CREATE INDEX IF NOT EXISTS idx_wwr_wallet ON wallet_window_results(wallet);
+
+CREATE TABLE IF NOT EXISTS smart_wallets (
+    wallet TEXT PRIMARY KEY,
+    n INTEGER NOT NULL,
+    wins INTEGER NOT NULL,
+    win_rate REAL,
+    ci_low REAL,
+    ci_high REAL,
+    pnl REAL,
+    avg_stake REAL,
+    avg_entry_offset_s REAL,
+    qualified INTEGER DEFAULT 0,  -- n >= 100 AND ci_low > 0.5 AND pnl > 0
+    updated_ts REAL NOT NULL
+);
 """
 
 
