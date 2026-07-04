@@ -143,6 +143,22 @@ CREATE TABLE IF NOT EXISTS sim_fills (
 );
 CREATE INDEX IF NOT EXISTS idx_sim_fills_run ON sim_fills(run_id);
 
+CREATE TABLE IF NOT EXISTS sim_orders (
+    id INTEGER PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    execution TEXT NOT NULL,      -- taker | maker
+    limit_price REAL NOT NULL,
+    contracts REAL NOT NULL,
+    status TEXT NOT NULL,         -- filled | partial | missed | expired
+    filled_contracts REAL DEFAULT 0,
+    reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sim_orders_run ON sim_orders(run_id);
+
 CREATE TABLE IF NOT EXISTS sim_positions (
     id INTEGER PRIMARY KEY,
     run_id TEXT NOT NULL,
@@ -229,6 +245,31 @@ CREATE TABLE IF NOT EXISTS wallet_window_results (
 );
 CREATE INDEX IF NOT EXISTS idx_wwr_wallet ON wallet_window_results(wallet);
 
+CREATE TABLE IF NOT EXISTS scorecards (
+    id INTEGER PRIMARY KEY,
+    run_ts REAL NOT NULL,
+    rank INTEGER,
+    kind TEXT NOT NULL,           -- shadow | replay
+    asset TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    trades INTEGER,
+    profit_factor REAL,
+    pl_ratio_pct REAL,
+    pnl_gross REAL,
+    pnl_net REAL,
+    hit_rate REAL,
+    brier_model REAL,
+    brier_market REAL,
+    signals_per_day REAL,
+    fill_rate_maker REAL,
+    fill_rate_taker REAL,
+    max_drawdown REAL,
+    confidence TEXT,
+    recommendation TEXT,
+    detail TEXT                   -- JSON: overall + by_regime + by_hour
+);
+CREATE INDEX IF NOT EXISTS idx_scorecards_run ON scorecards(run_ts);
+
 CREATE TABLE IF NOT EXISTS daily_pnl (
     date TEXT NOT NULL,           -- UTC YYYY-MM-DD
     asset TEXT NOT NULL,
@@ -296,6 +337,12 @@ class Database:
         """Synchronous upsert for low-frequency, must-not-lose rows."""
         with self._write_lock:
             self._upsert(table, row)
+            self._conn.commit()
+
+    def write_now_sql(self, sql: str, params: tuple = ()) -> None:
+        """Synchronous arbitrary write (e.g. UPDATE) with immediate commit."""
+        with self._write_lock:
+            self._conn.execute(sql, params)
             self._conn.commit()
 
     def _upsert(self, table: str, row: dict[str, Any]) -> None:

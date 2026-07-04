@@ -57,6 +57,7 @@ class OpenPosition:
     entry_ts: float
     entry_regime: str
     reason: str
+    run_id: str  # settlement writes to the run that opened the position
 
 
 @dataclass
@@ -112,11 +113,41 @@ class ShadowTrader(Observer):
                 "tape_start": self._session_start, "tape_end": None,
                 "windows": None, "summary": None,
             })
+        self._recover_positions()
         logger.info(
             "SHADOW trading: %s",
             {a: s.name for a, s in self.strategies.items()} or "no strategies assigned",
         )
         await super().start()
+
+    def _recover_positions(self) -> None:
+        """Rebuild open positions from fills that never reached settlement.
+
+        Idempotent restart: any shadow fill without a matching sim_positions
+        row is still open. It keeps its ORIGINAL run_id so its eventual PnL
+        lands with the strategy version that opened it.
+        """
+        rows = self.db.query(
+            "SELECT f.*, r.strategy AS strategy_key FROM sim_fills f "
+            "JOIN sim_runs r ON r.run_id = f.run_id "
+            "WHERE r.kind = 'shadow' AND NOT EXISTS "
+            "(SELECT 1 FROM sim_positions p WHERE p.run_id = f.run_id "
+            " AND p.market_ticker = f.market_ticker)",
+        )
+        for f in rows:
+            intent = OrderIntent(f["intent"])
+            side = "yes" if intent is OrderIntent.BUY_YES else "no"
+            self.positions[f["market_ticker"]] = OpenPosition(
+                asset=f["asset"], market_ticker=f["market_ticker"],
+                strategy_key=f["strategy_key"], side=side,
+                contracts=f["contracts"], avg_price=f["price"],
+                fees=f["fee"], entry_ts=f["ts"],
+                entry_regime="UNKNOWN", reason=f["reason"] or "recovered",
+                run_id=f["run_id"],
+            )
+            logger.info("recovered open position: %s %s %.0f @ %.3f (%s)",
+                        f["asset"], side.upper(), f["contracts"], f["price"],
+                        f["market_ticker"])
 
     def extra_tasks(self) -> list:
         return [self._settle_loop(), self._smart_money_loop()]
@@ -171,6 +202,7 @@ class ShadowTrader(Observer):
                 price=signal.limit_price, contracts=signal.contracts,
                 placed_ts=snap.ts, last_checked_ts=snap.ts,
             )
+            self._record_order(asset, snap, signal, "maker", "resting", 0.0)
             logger.info("%s: resting maker %s %.0f @ %.2f (%s)", asset,
                         signal.intent.value, signal.contracts, signal.limit_price,
                         signal.reason)
@@ -181,11 +213,34 @@ class ShadowTrader(Observer):
             return
         fill = simulate_taker(signal.intent, signal.limit_price, signal.contracts, book)
         if fill.filled < 1:
+            self._record_order(asset, snap, signal, "taker", "missed", 0.0)
             logger.info("%s: taker signal missed (book moved): %s", asset, signal.reason)
             return
+        status = "filled" if fill.filled >= signal.contracts else "partial"
+        self._record_order(asset, snap, signal, "taker", status, fill.filled)
         self._open_position(asset, snap, strategy.params_key(), signal.intent,
                             fill.filled, fill.avg_price or 0.0, fill.total_fee,
                             "taker", signal.reason)
+
+    def _record_order(self, asset, snap, signal, execution, status, filled) -> None:
+        self.db.write_now("sim_orders", {
+            "run_id": self.run_ids[asset], "ts": snap.ts, "asset": asset,
+            "market_ticker": snap.market_ticker, "intent": signal.intent.value,
+            "execution": execution, "limit_price": signal.limit_price,
+            "contracts": signal.contracts, "status": status,
+            "filled_contracts": filled, "reason": signal.reason,
+        })
+
+    def _update_order_status(self, market_ticker: str, status: str, filled: float) -> None:
+        rows = self.db.query(
+            "SELECT id FROM sim_orders WHERE market_ticker = ? AND execution = 'maker' "
+            "AND status = 'resting' ORDER BY ts DESC LIMIT 1", (market_ticker,),
+        )
+        if rows:
+            self.db.write_now_sql(
+                "UPDATE sim_orders SET status = ?, filled_contracts = ? WHERE id = ?",
+                (status, filled, rows[0]["id"]),
+            )
 
     # -------------------------------------------------------------- fills
 
@@ -197,6 +252,7 @@ class ShadowTrader(Observer):
             strategy_key=strategy_key, side=side, contracts=contracts,
             avg_price=avg_price, fees=fees, entry_ts=snap.ts,
             entry_regime=snap.regime.value, reason=reason,
+            run_id=self.run_ids[asset],
         )
         self.db.write_now("sim_fills", {
             "run_id": self.run_ids[asset], "ts": snap.ts, "asset": asset,
@@ -213,6 +269,7 @@ class ShadowTrader(Observer):
             return
         if snap.regime == Regime.SETTLEMENT:
             logger.info("%s: cancel resting maker at blackout", asset)
+            self._update_order_status(snap.market_ticker, "expired", 0.0)
             del self.resting[snap.market_ticker]
             return
         rows = self.db.query(
@@ -228,6 +285,7 @@ class ShadowTrader(Observer):
         fill = simulate_maker(order.intent, order.price, order.contracts, trades)
         if fill.filled < 1:
             return
+        self._update_order_status(snap.market_ticker, "filled", fill.filled)
         del self.resting[snap.market_ticker]
         self._open_position(asset, snap, order.strategy_key, order.intent,
                             fill.filled, order.price, 0.0, "maker",
@@ -269,7 +327,7 @@ class ShadowTrader(Observer):
                     result, DEFAULT_PAYOUT,
                 )
                 self.db.write_now("sim_positions", {
-                    "run_id": self.run_ids[pos.asset], "asset": pos.asset,
+                    "run_id": pos.run_id, "asset": pos.asset,
                     "market_ticker": ticker, "side": pos.side,
                     "contracts": pos.contracts, "avg_price": pos.avg_price,
                     "fees": pos.fees, "entry_ts": pos.entry_ts,
