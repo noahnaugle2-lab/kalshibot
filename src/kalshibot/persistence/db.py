@@ -160,6 +160,45 @@ CREATE TABLE IF NOT EXISTS sim_positions (
     pnl_net REAL
 );
 CREATE INDEX IF NOT EXISTS idx_sim_positions_run ON sim_positions(run_id);
+
+CREATE TABLE IF NOT EXISTS calibration_reports (
+    id INTEGER PRIMARY KEY,
+    run_ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    n_windows INTEGER,
+    n_snapshots INTEGER,
+    brier_model REAL,
+    brier_market REAL,
+    hit_rate REAL,
+    edge_hit_rate REAL,
+    edge_calls INTEGER,
+    report TEXT NOT NULL          -- full JSON incl. per-regime + bins
+);
+CREATE INDEX IF NOT EXISTS idx_calibration_asset ON calibration_reports(asset, run_ts);
+
+CREATE TABLE IF NOT EXISTS flow_pattern_outcomes (
+    id INTEGER PRIMARY KEY,
+    pattern TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    lean TEXT NOT NULL,           -- UP | DOWN
+    result TEXT NOT NULL,
+    correct INTEGER NOT NULL,
+    close_ts REAL,
+    computed_ts REAL NOT NULL,
+    UNIQUE(pattern, market_ticker)
+);
+CREATE INDEX IF NOT EXISTS idx_fpo_pattern_asset ON flow_pattern_outcomes(pattern, asset, close_ts);
+
+CREATE TABLE IF NOT EXISTS flow_patterns (
+    pattern TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    n INTEGER, hits INTEGER, hit_rate REAL,
+    n_30d INTEGER, hits_30d INTEGER, hit_rate_30d REAL,
+    status TEXT DEFAULT 'candidate',  -- candidate | active | benched
+    updated_ts REAL NOT NULL,
+    PRIMARY KEY (pattern, asset)
+);
 """
 
 
