@@ -89,7 +89,11 @@ class ShadowTrader(Observer):
         self.positions: dict[str, OpenPosition] = {}      # market_ticker -> pos
         self.resting: dict[str, RestingMaker] = {}        # market_ticker -> order
         self.run_ids: dict[str, str] = {}                 # asset -> sim_run id
+        from kalshibot.dashboard.api import WSHub
+
         self.smart: dict[str, sm_signal.SmartMoneySignal] = {}
+        self.latest_snapshots: dict[str, FeatureSnapshot] = {}
+        self.hub = WSHub()
         self._pm_client = PolymarketClient()
         self._session_start = time.time()
 
@@ -173,7 +177,36 @@ class ShadowTrader(Observer):
                         f["market_ticker"])
 
     def extra_tasks(self) -> list:
-        return [self._settle_loop(), self._smart_money_loop()]
+        from kalshibot.dashboard.api import serve
+
+        return [
+            self._settle_loop(),
+            self._smart_money_loop(),
+            serve(self, port=self.settings.dashboard_port),
+            self._ws_push_loop(),
+        ]
+
+    async def _ws_push_loop(self) -> None:
+        """Push live payloads + status to dashboard sockets."""
+        from kalshibot.dashboard.api import _live_payload, _status_payload
+
+        counter = 0
+        while True:
+            await asyncio.sleep(2.0)
+            try:
+                for asset in self.recorders:
+                    self.hub.publish({
+                        "type": "snapshot", "asset": asset,
+                        "data": await asyncio.to_thread(_live_payload, self, asset),
+                    })
+                counter += 1
+                if counter % 5 == 0:  # status every ~10s
+                    self.hub.publish({
+                        "type": "status",
+                        "data": await asyncio.to_thread(_status_payload, self),
+                    })
+            except Exception as exc:
+                logger.debug("ws push error: %s", exc)
 
     # --------------------------------------------------------------- hooks
 
@@ -182,6 +215,7 @@ class ShadowTrader(Observer):
         if sm is not None and sm.lean != "NEUTRAL":
             snap.smart_lean = sm.lean
             snap.smart_strength = sm.strength
+        self.latest_snapshots[asset] = snap
         return snap
 
     def on_snapshot(self, asset: str, snap: FeatureSnapshot) -> None:
@@ -443,6 +477,10 @@ class ShadowTrader(Observer):
                 self._bump_daily_pnl(pos, gross, net)
                 self.risk.record_pnl(pos.asset, net)
                 del self.positions[ticker]
+                self.hub.publish({"type": "settlement", "data": {
+                    "asset": pos.asset, "market_ticker": ticker,
+                    "result": result, "pnl_net": round(net, 2),
+                }})
                 logger.info("%s: SETTLED %s %s -> %s, pnl_net %+.2f (day %+.2f)",
                             pos.asset, pos.side.upper(), ticker, result, net,
                             self.risk.daily_pnl.get(pos.asset, 0.0))

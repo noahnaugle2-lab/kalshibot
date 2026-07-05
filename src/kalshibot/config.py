@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     n8n_webhook_base_url: str | None = Field(default=None, alias="N8N_WEBHOOK_BASE_URL")
     n8n_api_bearer_token: str | None = Field(default=None, alias="N8N_API_BEARER_TOKEN")
 
+    dashboard_token: str | None = Field(default=None, alias="DASHBOARD_TOKEN")
+    dashboard_port: int = Field(default=8777, alias="DASHBOARD_PORT")
+
 
 class AssetConfig(BaseModel):
     symbol: str

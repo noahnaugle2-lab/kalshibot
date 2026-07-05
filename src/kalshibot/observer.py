@@ -53,6 +53,7 @@ class Observer:
 
     async def start(self) -> None:
         ok, offset = await check_clock()
+        self.clock_offset_ms = offset * 1000 if offset is not None else None
         if not ok:
             logger.warning(
                 "clock drift check failed (offset=%s) — observation continues, "
@@ -207,7 +208,8 @@ class Observer:
     async def _clock_loop(self) -> None:
         while True:
             await asyncio.sleep(CLOCK_CHECK_INTERVAL)
-            await check_clock()
+            _, offset = await check_clock()
+            self.clock_offset_ms = offset * 1000 if offset is not None else None
 
 
 async def amain(db_path: str | None = None) -> None:

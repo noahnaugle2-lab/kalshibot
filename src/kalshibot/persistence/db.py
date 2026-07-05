@@ -245,6 +245,13 @@ CREATE TABLE IF NOT EXISTS wallet_window_results (
 );
 CREATE INDEX IF NOT EXISTS idx_wwr_wallet ON wallet_window_results(wallet);
 
+CREATE TABLE IF NOT EXISTS config_overrides (
+    id INTEGER PRIMARY KEY,
+    ts REAL NOT NULL,
+    scope TEXT NOT NULL,          -- e.g. asset:BTC
+    changes TEXT NOT NULL         -- JSON of applied updates
+);
+
 CREATE TABLE IF NOT EXISTS decisions (
     id INTEGER PRIMARY KEY,
     ts REAL NOT NULL,
