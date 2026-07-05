@@ -251,7 +251,21 @@ export function AssetCard({
               la.session_pnl.net > 0 ? 'var(--green)' : la.session_pnl.net < 0 ? 'var(--red)' : 'var(--faint)',
           }}
         >
-          {money(la.session_pnl.net)} <span className="text-ghost">net · {la.session_pnl.trades}t</span>
+          {money(la.session_pnl.net)}{' '}
+          <span className="text-ghost">
+            net ·{' '}
+            {la.session_pnl.trades > 0 ? (
+              <>
+                <span style={{ color: 'var(--green)' }}>{la.session_pnl.wins}W</span>
+                –
+                <span style={{ color: 'var(--red)' }}>
+                  {la.session_pnl.trades - la.session_pnl.wins}L
+                </span>
+              </>
+            ) : (
+              '0t'
+            )}
+          </span>
         </span>
       </div>
     </div>

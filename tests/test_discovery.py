@@ -55,4 +55,8 @@ def test_asset_config_loads_all_nine():
     # defaults applied, per-asset overrides respected
     assert configs["BTC"].edge_threshold_cents == 3
     assert configs["ZEC"].edge_threshold_cents == 5
-    assert all(c.enabled and not c.paused for c in configs.values())
+    assert all(c.enabled for c in configs.values())
+    # paused is a legitimate per-asset state (HYPE benched 2026-07-05);
+    # just verify the flag round-trips from YAML
+    assert configs["HYPE"].paused is True
+    assert configs["BTC"].paused is False

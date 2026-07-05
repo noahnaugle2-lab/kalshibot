@@ -429,7 +429,7 @@ function buildLiveAsset(sim: SimAsset): LiveAsset {
     session_pnl: {
       gross: +(sim.sessNet + sim.sessTrades * 0.34).toFixed(2),
       net: sim.sessNet,
-      trades: sim.sessTrades,
+      trades: sim.sessTrades, wins: 4,
     },
   };
 }

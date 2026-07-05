@@ -85,7 +85,12 @@ export interface Position {
   avg_price: number;
   unrealized_pnl: number;
 }
-export interface SessionPnl { gross: number; net: number; trades: number }
+export interface SessionPnl {
+  gross: number;
+  net: number;
+  trades: number;
+  wins: number;
+}
 export interface LiveAsset {
   asset: Asset;
   paused: boolean;

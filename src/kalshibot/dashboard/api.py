@@ -482,8 +482,8 @@ def _live_payload(trader, asset: str) -> dict:
                         "avg_price": pos.avg_price, "unrealized_pnl": unrealized}
     day = time.strftime("%Y-%m-%d", time.gmtime())
     pnl_rows = trader.db.query(
-        "SELECT SUM(pnl_gross) g, SUM(pnl_net) n, SUM(trades) t FROM daily_pnl "
-        "WHERE date = ? AND asset = ?", (day, asset),
+        "SELECT SUM(pnl_gross) g, SUM(pnl_net) n, SUM(trades) t, SUM(wins) w "
+        "FROM daily_pnl WHERE date = ? AND asset = ?", (day, asset),
     )
     session = pnl_rows[0] if pnl_rows else None
     return {
@@ -505,7 +505,8 @@ def _live_payload(trader, asset: str) -> dict:
         "session_pnl": {
             "gross": round(session["g"] or 0, 2) if session else 0.0,
             "net": round(session["n"] or 0, 2) if session else 0.0,
-            "trades": session["t"] or 0 if session else 0,
+            "trades": (session["t"] or 0) if session else 0,
+            "wins": (session["w"] or 0) if session else 0,
         },
     }
 
