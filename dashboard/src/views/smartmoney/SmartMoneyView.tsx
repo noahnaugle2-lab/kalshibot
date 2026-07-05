@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp, Circle, Copy } from 'lucide-react';
+import { ArrowDown, ArrowUp, Circle, Copy, ExternalLink, Trophy } from 'lucide-react';
 import { api } from '../../api/client';
 import type { SmartMoneyResponse } from '../../api/types';
 import { pct } from '../../lib/format';
@@ -142,6 +142,61 @@ export function SmartMoneyView() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      </div>
+
+      {/* top winning wallets — top 5 by realized profit, linked to Polymarket */}
+      <div className="bg-panel border border-line rounded-md overflow-hidden">
+        <div className="px-3.5 py-2.5 border-b border-line text-[10px] font-extrabold tracking-[0.1em] text-fg flex items-center gap-2">
+          <Trophy size={11} className="text-amber" />
+          TOP WINNING WALLETS
+          <span className="text-[8px] font-normal tracking-[0.1em] text-faint">
+            BY REALIZED PROFIT · CLICK FOR POLYMARKET PROFILE
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <div className="min-w-[720px]">
+            {[...(data?.wallets ?? [])]
+              .sort((a, b) => (b.profit_usd ?? 0) - (a.profit_usd ?? 0))
+              .slice(0, 5)
+              .map((w, i) => (
+                <div
+                  key={w.address}
+                  className="grid grid-cols-[34px_190px_1fr_90px_70px_110px] gap-2.5 px-3.5 py-[9px] border-b border-linesub text-[10px] items-center"
+                >
+                  <span className="font-extrabold text-[13px] text-fg">{i + 1}</span>
+                  <a
+                    href={`https://polymarket.com/profile/${w.address}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`open ${w.address} on polymarket.com`}
+                    className="text-[9px] text-indigosoft hover:underline inline-flex items-center gap-1"
+                  >
+                    {w.address.slice(0, 6)}…{w.address.slice(-4)}
+                    <ExternalLink size={9} className="shrink-0" />
+                  </a>
+                  <span className="text-dim text-[9px]">
+                    {pct(w.win_rate)} win · CI {Math.round(w.ci_low * 100)}–
+                    {Math.round(w.ci_high * 100)}
+                  </span>
+                  <span className="text-right text-green font-extrabold text-[12px]">
+                    +$
+                    {Math.abs(w.profit_usd ?? 0) >= 1000
+                      ? ((w.profit_usd ?? 0) / 1000).toFixed(1) + 'k'
+                      : (w.profit_usd ?? 0).toFixed(2)}
+                  </span>
+                  <span className="text-right text-dim">{w.n_resolved} res</span>
+                  <span className="text-right text-dim">
+                    {Math.round(w.avg_entry_seconds_after_open ?? 0)}s entry
+                  </span>
+                </div>
+              ))}
+            {(data?.wallets ?? []).length === 0 && (
+              <div className="px-3.5 py-4 text-faint text-[9px]">
+                no wallet records yet — the nightly Polymarket scan populates this
+              </div>
+            )}
           </div>
         </div>
       </div>
