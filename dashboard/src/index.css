@@ -1,0 +1,148 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---- Design tokens ------------------------------------------------------
+   Dark is the default/primary theme. The light theme is a real palette
+   applied via a `.light` class on <html> (proper class toggle — the
+   prototype's CSS filter hack is intentionally NOT reproduced). */
+
+:root {
+  --bg: #090a0e;
+  --panel: #0d0f15;
+  --panel2: #11131c;
+  --track: #151827;
+  --line: #1d2130;
+  --linesub: #171a26;
+  --linestrong: #232838;
+  --linestrong2: #2a2e42;
+  --fg: #e4e9f2;
+  --dim: #8b94a3;
+  --faint: #5c6675;
+  --ghost: #464f60;
+  --bright: #c7cedc;
+  --indigo: #5b67f1;
+  --indigo-soft: #a9b2ff;
+  --indigo-bg: #14172b;
+  --indigo-line: #2e3550;
+  --banner-line: #232848;
+  --green: #2fd180;
+  --green-bg: #12291c;
+  --green-bg2: #10231a;
+  --green-line: #1e4030;
+  --red: #f0525f;
+  --red-soft: #f0868f;
+  --red-bg: #33141a;
+  --red-line: #6e2530;
+  --red-deep: #2a0e14;
+  --amber: #e0a93e;
+  --amber-bg: #2a2210;
+  --amber-line: #4a3d1a;
+  --header-bg: #0b0d13;
+  --expand-bg: #0a0c12;
+  --drawer-bg: #0c0e14;
+  --gray-chip: #1b1d28;
+  --reg-early-bg: #1a2334;
+  --reg-early-fg: #7fa3d8;
+  --reg-mid-bg: #12291c;
+  --reg-mid-fg: #4acb82;
+  --reg-late-bg: #2e2410;
+  --reg-late-fg: #e0a93e;
+  --reg-set-bg: #33141a;
+  --reg-set-fg: #f0616f;
+  --strike: #3a4354;
+  --model-bar: #454b66;
+  --ci-band: #2e3550;
+  --pf-neg: #6e2530;
+  --scrollbar: #232838;
+  --scrim: rgba(5, 6, 10, 0.6);
+  --edge-ring: rgba(47, 209, 128, 0.25);
+  --edge-border: rgba(47, 209, 128, 0.4);
+}
+
+.light {
+  --bg: #f3f4f8;
+  --panel: #ffffff;
+  --panel2: #eceef4;
+  --track: #e4e7ef;
+  --line: #d9dde8;
+  --linesub: #e7eaf1;
+  --linestrong: #c9cedd;
+  --linestrong2: #bdc3d6;
+  --fg: #1b2233;
+  --dim: #5b6478;
+  --faint: #7b8498;
+  --ghost: #9ca4b6;
+  --bright: #333d52;
+  --indigo: #4a56e2;
+  --indigo-soft: #3d48c9;
+  --indigo-bg: #e9ebfc;
+  --indigo-line: #c5caf5;
+  --banner-line: #d3d8f6;
+  --green: #0f9d5b;
+  --green-bg: #ddf2e6;
+  --green-bg2: #e3f4eb;
+  --green-line: #b2dec7;
+  --red: #d63d49;
+  --red-soft: #c04751;
+  --red-bg: #fbe4e7;
+  --red-line: #eba9b1;
+  --red-deep: #f9dce0;
+  --amber: #9a7513;
+  --amber-bg: #f6edd2;
+  --amber-line: #e3d3a2;
+  --header-bg: #fafbfd;
+  --expand-bg: #f5f7fa;
+  --drawer-bg: #fcfcfe;
+  --gray-chip: #e8eaf0;
+  --reg-early-bg: #e2eaf6;
+  --reg-early-fg: #3a69ac;
+  --reg-mid-bg: #ddf2e6;
+  --reg-mid-fg: #128052;
+  --reg-late-bg: #f5ecce;
+  --reg-late-fg: #8f6e0e;
+  --reg-set-bg: #fbe4e7;
+  --reg-set-fg: #c43b49;
+  --strike: #b7bfd0;
+  --model-bar: #9fa8c4;
+  --ci-band: #c7cdf2;
+  --pf-neg: #eba9b1;
+  --scrollbar: #c4cad8;
+  --scrim: rgba(30, 34, 48, 0.45);
+  --edge-ring: rgba(15, 157, 91, 0.28);
+  --edge-border: rgba(15, 157, 91, 0.5);
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+body {
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* number inputs / selects inherit the mono font */
+input,
+select,
+button,
+textarea {
+  font-family: inherit;
+}
+
+input[type='range'] {
+  accent-color: var(--indigo);
+}

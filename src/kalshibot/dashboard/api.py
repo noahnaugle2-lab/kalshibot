@@ -260,7 +260,67 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
             trader.risk.kill_switch = False
             logger.warning("kill switch disengaged via API")
         trader.hub.publish({"type": "status", "data": _status_payload(trader)})
+        trader.notifier.emit("kill_switch", {
+            "engaged": trader.risk.kill_switch, "cancelled_orders": cancelled,
+        })
         return {"engaged": trader.risk.kill_switch, "cancelled_orders": cancelled}
+
+    # ------------------------------------------------- n8n REST surface
+    # Separate bearer token (N8N_API_BEARER_TOKEN) per spec: n8n workflows
+    # query status/PnL and pause/resume without holding the dashboard token.
+
+    n8n_token = trader.settings.n8n_api_bearer_token
+
+    def require_n8n_auth(
+        credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    ) -> None:
+        if not n8n_token:
+            raise HTTPException(status_code=404)  # surface off when unconfigured
+        if credentials is None or not secrets.compare_digest(
+            credentials.credentials, n8n_token
+        ):
+            raise HTTPException(status_code=401, detail="invalid token")
+
+    @app.get("/n8n/status", dependencies=[Depends(require_n8n_auth)])
+    def n8n_status() -> dict:
+        payload = _status_payload(trader)
+        return {
+            "mode": payload["mode"],
+            "kill_switch_engaged": payload["kill_switch_engaged"],
+            "feeds_connected": all(
+                f.get("connected") for f in payload["feeds"].values()),
+            "paused_assets": sorted(trader.risk.paused_assets),
+            "open_positions": len(trader.positions),
+        }
+
+    @app.get("/n8n/pnl", dependencies=[Depends(require_n8n_auth)])
+    def n8n_pnl() -> dict:
+        day = time.strftime("%Y-%m-%d", time.gmtime())
+        rows = db.query(
+            "SELECT asset, SUM(pnl_net) net, SUM(trades) trades FROM daily_pnl "
+            "WHERE date = ? GROUP BY asset", (day,),
+        )
+        total = db.query(
+            "SELECT SUM(p.pnl_net) net FROM sim_positions p "
+            "JOIN sim_runs r ON r.run_id = p.run_id WHERE r.kind = 'shadow'",
+        )
+        return {
+            "date": day,
+            "today_by_asset": {r["asset"]: {"net": round(r["net"] or 0, 2),
+                                            "trades": r["trades"]} for r in rows},
+            "today_net": round(sum(r["net"] or 0 for r in rows), 2),
+            "campaign_net": round(total[0]["net"] or 0, 2) if total else 0.0,
+        }
+
+    @app.post("/n8n/pause/{symbol}", dependencies=[Depends(require_n8n_auth)])
+    def n8n_pause(symbol: str) -> dict:
+        trader.risk.paused_assets.add(symbol)
+        return {"asset": symbol, "paused": True}
+
+    @app.post("/n8n/resume/{symbol}", dependencies=[Depends(require_n8n_auth)])
+    def n8n_resume(symbol: str) -> dict:
+        trader.risk.paused_assets.discard(symbol)
+        return {"asset": symbol, "paused": False}
 
     @app.post("/api/control/pause/{symbol}", dependencies=[Depends(require_auth)])
     def pause(symbol: str) -> dict:

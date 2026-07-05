@@ -1,0 +1,31 @@
+# Self-hosted n8n for KalshiBot orchestration/alerting (phase 10).
+#
+#   cd deploy && docker compose up -d
+#
+# Binds 127.0.0.1 only; public access goes through the Cloudflare Tunnel
+# (n8n.naugle.us) with access control in front. The n8n_data volume holds
+# workflows/credentials — include it in backups:
+#   docker run --rm -v kalshibot_n8n_data:/data -v "$PWD":/backup alpine \
+#     tar czf /backup/n8n_backup_$(date +%Y%m%d).tgz -C /data .
+
+name: kalshibot
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: kalshibot-n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      - N8N_HOST=n8n.naugle.us
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://n8n.naugle.us/
+      - N8N_PORT=5678
+      - GENERIC_TIMEZONE=America/New_York
+      - N8N_DIAGNOSTICS_ENABLED=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+volumes:
+  n8n_data:

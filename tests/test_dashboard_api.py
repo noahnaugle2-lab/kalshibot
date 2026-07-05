@@ -34,7 +34,8 @@ def trader(tmp_path):
         "payout_per_contract": 0.99, "pnl_gross": 4.9, "pnl_net": 4.8,
     })
     stub = StubTrader(
-        settings=SimpleNamespace(mode=Mode.SHADOW, dashboard_token=TOKEN),
+        settings=SimpleNamespace(mode=Mode.SHADOW, dashboard_token=TOKEN,
+                                 n8n_api_bearer_token=None),
         db=db,
         risk=RiskManager(config=RiskConfig()),
         recorders={"BTC": SimpleNamespace(
@@ -47,6 +48,7 @@ def trader(tmp_path):
         latest_snapshots={},
         router=None,
         hub=WSHub(),
+        notifier=__import__('kalshibot.monitoring.webhooks', fromlist=['WebhookNotifier']).WebhookNotifier(None),
         _session_start=time.time() - 60,
         clock_offset_ms=-12.0,
     )

@@ -90,10 +90,15 @@ class ShadowTrader(Observer):
         self.resting: dict[str, RestingMaker] = {}        # market_ticker -> order
         self.run_ids: dict[str, str] = {}                 # asset -> sim_run id
         from kalshibot.dashboard.api import WSHub
+        from kalshibot.monitoring.healthcheck import DeadMansSwitch
+        from kalshibot.monitoring.webhooks import WebhookNotifier
 
         self.smart: dict[str, sm_signal.SmartMoneySignal] = {}
         self.latest_snapshots: dict[str, FeatureSnapshot] = {}
         self.hub = WSHub()
+        self.notifier = WebhookNotifier(self.settings.n8n_webhook_base_url)
+        self.deadman = DeadMansSwitch(self.settings.healthchecks_ping_url)
+        self._loss_limit_notified: set[str] = set()
         self._pm_client = PolymarketClient()
         self._session_start = time.time()
 
@@ -184,6 +189,8 @@ class ShadowTrader(Observer):
             self._smart_money_loop(),
             serve(self, port=self.settings.dashboard_port),
             self._ws_push_loop(),
+            self.notifier.run(),
+            self.deadman.run(self),
         ]
 
     async def _ws_push_loop(self) -> None:
@@ -399,6 +406,12 @@ class ShadowTrader(Observer):
             "price": avg_price, "contracts": contracts, "fee": fees,
             "liquidity": liquidity, "reason": reason,
         })
+        self.notifier.emit("trade_executed", {
+            "asset": asset, "market_ticker": snap.market_ticker,
+            "side": side, "contracts": contracts, "avg_price": avg_price,
+            "fees": fees, "liquidity": liquidity, "reason": reason,
+            "mode": self.settings.mode.value,
+        })
         logger.info("%s: OPEN %s %.0f @ %.3f fee %.2f (%s) [%s]",
                     asset, side.upper(), contracts, avg_price, fees, reason, liquidity)
 
@@ -481,6 +494,28 @@ class ShadowTrader(Observer):
                     "asset": pos.asset, "market_ticker": ticker,
                     "result": result, "pnl_net": round(net, 2),
                 }})
+                self.notifier.emit("settlement", {
+                    "asset": pos.asset, "market_ticker": ticker,
+                    "result": result, "side": pos.side,
+                    "pnl_net": round(net, 2),
+                    "day_pnl": round(self.risk.daily_pnl.get(pos.asset, 0.0), 2),
+                })
+                day_pnl = self.risk.daily_pnl.get(pos.asset, 0.0)
+                if (day_pnl <= -self.risk.config.max_daily_loss_per_asset_usd
+                        and pos.asset not in self._loss_limit_notified):
+                    self._loss_limit_notified.add(pos.asset)
+                    self.notifier.emit("daily_loss_limit", {
+                        "scope": pos.asset, "day_pnl": round(day_pnl, 2),
+                        "limit": self.risk.config.max_daily_loss_per_asset_usd,
+                    })
+                if self.risk.global_daily_pnl <= -self.risk.config.max_daily_loss_global_usd \
+                        and "GLOBAL" not in self._loss_limit_notified:
+                    self._loss_limit_notified.add("GLOBAL")
+                    self.notifier.emit("daily_loss_limit", {
+                        "scope": "GLOBAL",
+                        "day_pnl": round(self.risk.global_daily_pnl, 2),
+                        "limit": self.risk.config.max_daily_loss_global_usd,
+                    })
                 logger.info("%s: SETTLED %s %s -> %s, pnl_net %+.2f (day %+.2f)",
                             pos.asset, pos.side.upper(), ticker, result, net,
                             self.risk.daily_pnl.get(pos.asset, 0.0))
