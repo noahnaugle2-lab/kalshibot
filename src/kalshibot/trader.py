@@ -147,6 +147,18 @@ class ShadowTrader(Observer):
             })
         self._recover_positions()
         self._recover_daily_pnl()
+        # safety: lead-lag strategies are inert without BTC's spot feed
+        needs_btc = any(
+            cfg.enabled and not cfg.paused and cfg.strategy == "cross_asset_lead_lag"
+            for cfg in self.asset_configs.values()
+        )
+        btc = self.asset_configs.get("BTC")
+        if needs_btc and (btc is None or not btc.enabled):
+            logger.error(
+                "cross_asset_lead_lag is active but BTC is disabled — its "
+                "trigger (btc_ret_30s) will always be null and no lead-lag "
+                "entries can fire. Enable BTC (paused is fine)."
+            )
         logger.info(
             "SHADOW trading: %s",
             {a: s.name for a, s in self.strategies.items()} or "no strategies assigned",
