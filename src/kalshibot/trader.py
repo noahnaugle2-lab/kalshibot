@@ -191,7 +191,36 @@ class ShadowTrader(Observer):
             self._ws_push_loop(),
             self.notifier.run(),
             self.deadman.run(self),
+            self._nightly_loop(),
         ]
+
+    async def _nightly_loop(self) -> None:
+        """Run the nightly evaluation job daily at ~08:15 UTC.
+
+        Runs as a subprocess so a failure (or a slow Claude analysis) can
+        never touch the trading loops. Scheduled in-process because launchd/
+        cron are TCC-blocked from this repo's location (see README).
+        """
+        from datetime import datetime, timedelta, timezone
+
+        while True:
+            now = datetime.now(timezone.utc)
+            target = now.replace(hour=8, minute=15, second=0, microsecond=0)
+            if target <= now:
+                target += timedelta(days=1)
+            await asyncio.sleep((target - now).total_seconds())
+            logger.info("nightly job starting")
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    ".venv/bin/python", "scripts/nightly.py",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await asyncio.wait_for(proc.wait(), timeout=1800)
+                logger.info("nightly job finished (exit %s)", proc.returncode)
+                self.notifier.emit("nightly_report", {"exit_code": proc.returncode})
+            except Exception as exc:
+                logger.error("nightly job failed: %s", exc)
 
     async def _ws_push_loop(self) -> None:
         """Push live payloads + status to dashboard sockets."""
