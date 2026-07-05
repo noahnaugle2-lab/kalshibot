@@ -240,6 +240,8 @@ CREATE TABLE IF NOT EXISTS wallet_window_results (
     pnl REAL,
     stake REAL,
     entry_offset_s REAL,
+    lean_600 TEXT,                -- stance observable at minute 10 (causal)
+    won_600 INTEGER,
     computed_ts REAL NOT NULL,
     UNIQUE(wallet, condition_id)
 );

@@ -85,11 +85,13 @@ class PMTrade:
 @dataclass
 class WalletWindow:
     wallet: str
-    lean: str                  # UP | DOWN
+    lean: str                  # UP | DOWN (net of full window)
     won: bool
     pnl: float
     stake: float
     entry_offset_s: float      # seconds after window open of first entry
+    lean_600: str | None = None  # stance as of minute 10 — what live polling sees
+    won_600: bool | None = None
 
 
 @dataclass
@@ -180,14 +182,18 @@ def wallet_windows(
     results: list[WalletWindow] = []
     for wallet, ts_list in by_wallet.items():
         shares = {"Up": 0.0, "Down": 0.0}
+        shares_600 = {"Up": 0.0, "Down": 0.0}
         cash = 0.0
         stake = 0.0
         first_entry: float | None = None
+        cutoff_600 = window_open_ts + 600
         for t in sorted(ts_list, key=lambda x: x.ts):
             if t.outcome not in shares or t.side not in ("BUY", "SELL"):
                 continue
             signed = t.size if t.side == "BUY" else -t.size
             shares[t.outcome] += signed
+            if t.ts <= cutoff_600:
+                shares_600[t.outcome] += signed
             cash -= signed * t.price
             if t.side == "BUY":
                 stake += t.size * t.price
@@ -197,12 +203,16 @@ def wallet_windows(
         if abs(net) < 1.0 or first_entry is None:  # no meaningful stance
             continue
         lean = "UP" if net > 0 else "DOWN"
+        net_600 = shares_600["Up"] - shares_600["Down"]
+        lean_600 = None if abs(net_600) < 1.0 else ("UP" if net_600 > 0 else "DOWN")
         payout = shares["Up"] if winner == "UP" else shares["Down"]
         pnl = cash + max(0.0, payout)  # winning shares redeem at $1
         results.append(WalletWindow(
             wallet=wallet, lean=lean, won=(lean == winner),
             pnl=round(pnl, 4), stake=round(stake, 4),
             entry_offset_s=max(0.0, first_entry - window_open_ts),
+            lean_600=lean_600,
+            won_600=None if lean_600 is None else (lean_600 == winner),
         ))
     return results
 
@@ -249,6 +259,8 @@ async def scan_asset(
                 "condition_id": market.condition_id, "close_ts": close_ts,
                 "lean": w.lean, "won": int(w.won), "pnl": w.pnl,
                 "stake": w.stake, "entry_offset_s": w.entry_offset_s,
+                "lean_600": w.lean_600,
+                "won_600": None if w.won_600 is None else int(w.won_600),
                 "computed_ts": time.time(),
             })
         db.write_now("polymarket_markets", {
