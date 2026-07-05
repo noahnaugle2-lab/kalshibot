@@ -514,30 +514,43 @@ async def serve(trader, host: str = "127.0.0.1", port: int = 8777) -> None:
 
     import uvicorn
 
-    for attempt in range(12):
-        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            probe.bind((host, port))
-            probe.close()
-            break
-        except OSError:
-            probe.close()
-            if attempt == 0:
-                logger.info("port %d busy (predecessor shutting down?), waiting", port)
-            await asyncio.sleep(2.5)
-    else:
-        logger.error("port %d never freed — dashboard API disabled, trading continues", port)
-        return
+    async def wait_for_port() -> None:
+        attempt = 0
+        while True:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                probe.bind((host, port))
+                probe.close()
+                return
+            except OSError:
+                probe.close()
+                if attempt % 12 == 0:
+                    logger.warning("port %d busy — dashboard API waiting (retrying "
+                                   "forever; trading unaffected)", port)
+                attempt += 1
+                await asyncio.sleep(2.5 if attempt < 12 else 30.0)
 
-    config = uvicorn.Config(
-        create_app(trader), host=host, port=port, log_level="warning", loop="asyncio",
-    )
-    server = uvicorn.Server(config)
-    logger.info("dashboard API listening on http://%s:%d", host, port)
-    try:
-        await server.serve()
-    except SystemExit:
-        logger.error("dashboard API failed to start — trading continues without it")
+    # Never give up: a predecessor may hold the port for minutes on a slow
+    # shutdown. The API silently staying down is an outage; trading loops are
+    # independent of this task either way.
+    while True:
+        await wait_for_port()
+        config = uvicorn.Config(
+            create_app(trader), host=host, port=port, log_level="warning",
+            loop="asyncio",
+        )
+        server = uvicorn.Server(config)
+        logger.info("dashboard API listening on http://%s:%d", host, port)
+        try:
+            await server.serve()
+            logger.error("dashboard API server exited; restarting in 10s")
+        except asyncio.CancelledError:
+            raise
+        except SystemExit as exc:
+            logger.error("dashboard API start failed (exit %s); retrying in 10s", exc.code)
+        except Exception as exc:
+            logger.error("dashboard API crashed: %s; restarting in 10s", exc)
+        await asyncio.sleep(10.0)
 
 
 def utcnow_iso() -> str:
