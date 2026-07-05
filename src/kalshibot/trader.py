@@ -146,11 +146,30 @@ class ShadowTrader(Observer):
                 "windows": None, "summary": None,
             })
         self._recover_positions()
+        self._recover_daily_pnl()
         logger.info(
             "SHADOW trading: %s",
             {a: s.name for a, s in self.strategies.items()} or "no strategies assigned",
         )
         await super().start()
+
+    def _recover_daily_pnl(self) -> None:
+        """Seed the risk layer's daily-loss tracker from the DB.
+
+        The tracker is in-memory; without this, every restart re-arms assets
+        that already hit their daily loss halt (observed: HYPE blew through
+        its $20/day cap across restarts on 2026-07-05).
+        """
+        day = time.strftime("%Y-%m-%d", time.gmtime())
+        self.risk._roll_day()
+        for row in self.db.query(
+            "SELECT asset, SUM(pnl_net) AS net FROM daily_pnl WHERE date = ? "
+            "GROUP BY asset", (day,),
+        ):
+            self.risk.daily_pnl[row["asset"]] = row["net"] or 0.0
+            if (row["net"] or 0) <= -self.risk.config.max_daily_loss_per_asset_usd:
+                logger.warning("%s: daily loss limit already hit today (%.2f) — "
+                               "halted for the day", row["asset"], row["net"])
 
     def _recover_positions(self) -> None:
         """Rebuild open positions from fills that never reached settlement.
