@@ -124,7 +124,10 @@ export function AssetCard({
       {/* sparkline + spot overlay */}
       <div className="relative">
         <Sparkline series={series} strike={snap.floor_strike} color={color} height={48} />
-        <div className="absolute top-0.5 left-[13px] text-[10px]">
+        <div
+          className="absolute top-0.5 left-[13px] text-[10px] px-1 rounded-[3px]"
+          style={{ background: 'color-mix(in srgb, var(--panel) 85%, transparent)' }}
+        >
           <span style={{ color: spotColor, transition: 'color 0.25s' }}>
             {maybe(snap.spot, (v) => num(v, dp))}
           </span>{' '}

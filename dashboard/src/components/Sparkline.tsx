@@ -1,5 +1,7 @@
 /** Hand-rolled SVG sparkline with an optional dashed strike line.
- *  viewBox 120x32, preserveAspectRatio=none (full-bleed, like the prototype). */
+ *  viewBox 120x32, preserveAspectRatio=none (full-bleed, like the prototype).
+ *  The polyline is mapped into the LOWER band (y 11..30) so the spot-price
+ *  overlay text in the top band never collides with the line. */
 export function Sparkline({
   series,
   strike,
