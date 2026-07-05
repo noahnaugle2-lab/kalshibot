@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from kalshibot.config import PROJECT_ROOT, TARGET_ASSETS
+from kalshibot.config import PROJECT_ROOT, load_asset_configs
 from kalshibot.evaluation.calibration import run_calibration
 from kalshibot.persistence.db import Database
 from kalshibot.smartmoney.flow import mine_new_windows
@@ -28,6 +28,7 @@ def fmt(x: float | None, places: int = 3) -> str:
 
 def main() -> None:
     db = Database(PROJECT_ROOT / "data" / "kalshibot.db")
+    ASSETS = [a for a, c in load_asset_configs().items() if c.enabled]
     lines: list[str] = []
     out = lines.append
 
@@ -36,7 +37,7 @@ def main() -> None:
     out("CALIBRATION (tradeable regimes only; lower Brier = better calibrated)")
     out(f"{'ASSET':<6} {'WINDOWS':>7} {'SNAPS':>6} {'BRIER(model)':>12} "
         f"{'BRIER(market)':>13} {'HIT':>6} {'EDGE-HIT':>8} {'EDGE-N':>6}")
-    reports = run_calibration(db, TARGET_ASSETS)
+    reports = run_calibration(db, ASSETS)
     for r in sorted(reports, key=lambda r: (r.overall.brier_model or 1)):
         marker = " *" if (
             r.overall.brier_model is not None

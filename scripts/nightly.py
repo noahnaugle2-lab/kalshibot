@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from kalshibot.config import PROJECT_ROOT, TARGET_ASSETS
+from kalshibot.config import PROJECT_ROOT, load_asset_configs
 from kalshibot.evaluation.calibration import run_calibration
 from kalshibot.evaluation.scorecard import build_scorecards, persist_scorecards, render_ranking
 from kalshibot.persistence.db import Database
@@ -35,9 +35,10 @@ WINDOW = 900
 
 async def main() -> None:
     db = Database(PROJECT_ROOT / "data" / "kalshibot.db")
+    ASSETS = [a for a, c in load_asset_configs().items() if c.enabled]
     lines: list[str] = [f"KalshiBot nightly — {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}", ""]
 
-    reports = run_calibration(db, TARGET_ASSETS)
+    reports = run_calibration(db, ASSETS)
     lines.append(f"[1/5] calibration: {len(reports)} assets scored")
 
     new_flow = mine_new_windows(db)
@@ -49,7 +50,7 @@ async def main() -> None:
         end = (now // WINDOW) * WINDOW - WINDOW
         start = end - int(26 * 3600)
         total_rows = 0
-        for asset in TARGET_ASSETS:
+        for asset in ASSETS:
             stats = await scan_asset(client, db, asset, start, end)
             total_rows += stats["wallet_rows"]
         qualified = db.query(

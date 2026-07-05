@@ -45,6 +45,7 @@ blackouts: []
 
 assets:
   BTC:
+    enabled: false  # research narrowed to SOL/XRP/DOGE 2026-07-05 (no recording/analysis)
     spot_symbol_binance: BTCUSDT
     spot_symbol_coinbase: BTC-USD
     paused: true   # paused 2026-07-05 by owner: concentrating on lead-lag winners (SOL/XRP/DOGE)
@@ -52,6 +53,7 @@ assets:
     strategy_params: {move_vol_mult: 3.0, edge_threshold: 0.02, contracts: 10}
     smart_money_weight: 0.25   # enabled 2026-07-05 after causal walk-forward validation (75.9% vs 53.1% base)
   ETH:
+    enabled: false  # research narrowed to SOL/XRP/DOGE 2026-07-05 (no recording/analysis)
     spot_symbol_binance: ETHUSDT
     spot_symbol_coinbase: ETH-USD
     paused: true   # paused 2026-07-05 by owner: concentrating on lead-lag winners (SOL/XRP/DOGE)
@@ -65,6 +67,7 @@ assets:
     strategy_params: {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10}
     smart_money_weight: 0.25   # enabled 2026-07-05 after causal walk-forward validation (75.9% vs 53.1% base)
   ZEC:
+    enabled: false  # research narrowed to SOL/XRP/DOGE 2026-07-05 (no recording/analysis)
     spot_symbol_binance: ZECUSDT
     spot_symbol_coinbase: ZEC-USD
     edge_threshold_cents: 5      # thin book: higher bar to clear slippage
@@ -72,6 +75,7 @@ assets:
     strategy: thin_book_maker
     strategy_params: {min_spread_cents: 3.0, model_margin: 0.03, contracts: 10}
   HYPE:
+    enabled: false  # research narrowed to SOL/XRP/DOGE 2026-07-05 (no recording/analysis)
     spot_symbol_binance: HYPEUSDT
     spot_symbol_coinbase: HYPE-USD
     edge_threshold_cents: 5
@@ -91,12 +95,14 @@ assets:
     strategy: cross_asset_lead_lag
     strategy_params: {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10}
   BNB:
+    enabled: false  # research narrowed to SOL/XRP/DOGE 2026-07-05 (no recording/analysis)
     spot_symbol_binance: BNBUSDT
     spot_symbol_coinbase: BNB-USD
     paused: true   # paused 2026-07-05 by owner: concentrating on lead-lag winners (SOL/XRP/DOGE)
     strategy: cross_asset_lead_lag
     strategy_params: {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10}
   NEAR:
+    enabled: false  # research narrowed to SOL/XRP/DOGE 2026-07-05 (no recording/analysis)
     spot_symbol_binance: NEARUSDT
     spot_symbol_coinbase: NEAR-USD
     edge_threshold_cents: 5

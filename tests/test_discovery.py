@@ -55,7 +55,7 @@ def test_asset_config_loads_all_nine():
     # defaults applied, per-asset overrides respected
     assert configs["BTC"].edge_threshold_cents == 3
     assert configs["ZEC"].edge_threshold_cents == 5
-    assert all(c.enabled for c in configs.values())
-    # pause states are runtime operational decisions — don't pin specific
-    # assets here, just verify the flag parses as a bool for every asset
+    # enabled/paused are runtime operational decisions — don't pin specific
+    # assets here, just verify the flags parse as bools for every asset
+    assert all(isinstance(c.enabled, bool) for c in configs.values())
     assert all(isinstance(c.paused, bool) for c in configs.values())
