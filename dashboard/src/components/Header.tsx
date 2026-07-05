@@ -90,7 +90,7 @@ export function Header() {
       {/* ---- 52px bar ---- */}
       <div className="flex items-center flex-wrap gap-x-5 gap-y-1.5 px-5 py-2 lg:py-0 lg:h-[52px]">
         <div className="flex items-center gap-2.5">
-          <Logo size={22} />
+          <Logo size={34} />
           <span className="text-[14px] font-extrabold tracking-[0.06em] text-fg">KALSHIBOT</span>
           <ModeChip mode={mode} />
         </div>
