@@ -41,6 +41,7 @@ export function Header() {
     scenario,
     setScenario,
     killEngaged,
+    live,
     openKillModal,
     disengageKill,
     cancelledOrders,
@@ -50,17 +51,26 @@ export function Header() {
   const mode = status?.mode ?? 'SHADOW';
 
   // Header PnL chip: 24H and SINCE START, net, derived from equity curves.
+  // Benched (paused) assets are EXCLUDED from the headline — their sunk PnL
+  // isn't actionable; the all-inclusive figure lives in the tooltip.
+  const pausedAssets = useMemo(
+    () => new Set(Object.values(live).filter((l) => l.paused).map((l) => l.asset)),
+    [live],
+  );
   const pnl = useMemo(() => {
     if (!equity) return null;
     let total = 0;
     let day = 0;
+    let allTotal = 0;
     let started = false;
     const cutoff = nowSec - 86400;
     for (const s of equity.series) {
       const pts = s.points;
       if (pts.length < 2) continue;
-      started = true;
       const last = pts[pts.length - 1][1];
+      allTotal += last;
+      if (pausedAssets.has(s.asset)) continue;
+      started = true;
       total += last;
       let base = pts[0][1];
       for (const p of pts) {
@@ -69,8 +79,8 @@ export function Header() {
       }
       day += last - base;
     }
-    return { total, day, started };
-  }, [equity, nowSec]);
+    return { total, day, allTotal, started };
+  }, [equity, nowSec, pausedAssets]);
 
   const zeroDay = !pnl || !pnl.started;
 
@@ -101,7 +111,14 @@ export function Header() {
 
         <div className="flex items-center gap-3.5 flex-wrap">
           {/* PnL chip */}
-          <span className="hidden md:flex items-center gap-2.5 text-[10px] bg-panel2 border border-line rounded px-2.5 py-1">
+          <span
+            className="hidden md:flex items-center gap-2.5 text-[10px] bg-panel2 border border-line rounded px-2.5 py-1"
+            title={
+              pausedAssets.size > 0 && pnl
+                ? `benched assets excluded (${[...pausedAssets].join(', ')}) · all assets since start: ${money(pnl.allTotal)}`
+                : undefined
+            }
+          >
             <span className="flex items-center gap-1.5">
               <span className="text-[8px] tracking-[0.1em] text-faint">24H</span>
               <span
@@ -125,7 +142,9 @@ export function Header() {
                 {zeroDay ? '$0.00' : money(pnl!.total)}
               </span>
             </span>
-            <span className="text-[8px] text-ghost">NET</span>
+            <span className="text-[8px] text-ghost">
+              NET{pausedAssets.size > 0 ? ' · EX-BENCHED' : ''}
+            </span>
           </span>
 
           {/* WS indicator (dev: click to simulate a drop) */}
