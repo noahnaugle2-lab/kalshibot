@@ -106,25 +106,27 @@ export interface LiveAsset {
 export type LeaderboardBasis = 'net' | 'gross';
 export type SmartMoneyFilter = 'with' | 'without' | 'both';
 export type Confidence = 'high' | 'medium' | 'low';
-export type Recommendation = 'keep' | 'retune' | 'bench';
+export type Recommendation = 'keep' | 'retune' | 'bench' | 'collect';
 export interface LeaderboardRow {
   rank: number;
   asset: Asset;
   strategy: string;
-  profit_factor: number;
-  pl_ratio_pct: number;
-  net_pnl_per_contract: number;
-  return_on_capital: number;
-  hit_rate: number;
-  brier_model: number;
-  brier_market: number;
-  signals_per_day: number;
-  fill_rate: number;
-  avg_spread_cents: number;
-  avg_slippage_cents: number;
+  // real backend sends null where a metric is undefined (no losses yet, no
+  // calibration yet, not yet measured) — every consumer must guard
+  profit_factor: number | null;
+  pl_ratio_pct: number | null;
+  net_pnl_per_contract: number | null;
+  return_on_capital: number | null;
+  hit_rate: number | null;
+  brier_model: number | null;
+  brier_market: number | null;
+  signals_per_day: number | null;
+  fill_rate: number | null;
+  avg_spread_cents: number | null;
+  avg_slippage_cents: number | null;
   max_drawdown: number;
   longest_losing_streak: number;
-  pnl_volatility: number;
+  pnl_volatility: number | null;
   n_trades: number;
   n_settled_windows: number;
   confidence: Confidence;

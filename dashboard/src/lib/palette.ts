@@ -45,6 +45,7 @@ export function confidencePillStyle(conf: Confidence): CSSProperties {
     case 'high': return { background: 'var(--reg-mid-bg)', color: 'var(--reg-mid-fg)' };
     case 'medium': return { background: 'var(--reg-early-bg)', color: 'var(--reg-early-fg)' };
     case 'low': return { background: 'var(--amber-bg)', color: 'var(--amber)' };
+    default: return { background: 'var(--gray-chip)', color: 'var(--dim)' };
   }
 }
 
@@ -53,5 +54,7 @@ export function recommendationPillStyle(rec: Recommendation): CSSProperties {
     case 'keep': return { background: 'var(--green-bg2)', color: 'var(--green)' };
     case 'retune': return { background: 'var(--amber-bg)', color: 'var(--amber)' };
     case 'bench': return { background: 'var(--gray-chip)', color: 'var(--dim)' };
+    case 'collect':
+    default: return { background: 'var(--gray-chip)', color: 'var(--dim)' };
   }
 }

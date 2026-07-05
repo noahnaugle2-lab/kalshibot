@@ -8,7 +8,7 @@ import type {
   LeaderboardRow,
   SmartMoneyFilter,
 } from '../../api/types';
-import { fmtBrier, fmtUtcClock, money, pct, signedCents, CENT, MINUS } from '../../lib/format';
+import { fmtBrier, fmtUtcClock, maybe, money, pct, signedCents, CENT, MINUS } from '../../lib/format';
 import { ASSET_COLOR, confidencePillStyle, recommendationPillStyle } from '../../lib/palette';
 import { EmptyState } from '../../components/EmptyState';
 import { MicroLabel, SegButton } from '../../components/SegButton';
@@ -20,11 +20,23 @@ const GRID = '60px 52px minmax(140px,1fr) 56px 56px 56px 48px 48px 78px 48px 46p
 type SortKey = 'pf' | 'pl' | 'hit' | 'n';
 
 const SORT_VALUE: Record<SortKey, (r: LeaderboardRow) => number> = {
-  pf: (r) => r.profit_factor,
-  pl: (r) => r.pl_ratio_pct,
-  hit: (r) => r.hit_rate,
+  pf: (r) => r.profit_factor ?? -Infinity,
+  pl: (r) => r.pl_ratio_pct ?? -Infinity,
+  hit: (r) => r.hit_rate ?? -Infinity,
   n: (r) => r.n_trades,
 };
+
+/** Null-safe fixed-point ("—" fallback). */
+const nf = (v: number | null | undefined, dp = 2, fb = '\u2014') =>
+  v == null || Number.isNaN(v) ? fb : v.toFixed(dp);
+
+/** Profit factor display: null = no losses yet (∞ when winning) or no data. */
+const pfText = (r: LeaderboardRow) =>
+  r.profit_factor == null
+    ? r.n_trades > 0 && (r.hit_rate ?? 0) >= 1
+      ? '\u221E'
+      : '\u2014'
+    : r.profit_factor.toFixed(2);
 
 const CONF_LABEL = { high: 'HIGH', medium: 'MED', low: 'LOW' } as const;
 
@@ -71,7 +83,8 @@ export function LeaderboardView() {
     const map: Partial<Record<Asset, number>> = {};
     for (const r of data.rows) {
       const w = without.rows.find((x) => x.asset === r.asset);
-      if (w) map[r.asset] = r.profit_factor - w.profit_factor;
+      if (w && r.profit_factor != null && w.profit_factor != null)
+        map[r.asset] = r.profit_factor - w.profit_factor;
     }
     return map;
   }, [sm, data, without]);
@@ -166,7 +179,8 @@ export function LeaderboardView() {
               {rows.map((r, i) => {
                 const open = openRow === r.asset;
                 const badge = r.n_trades < 30 ? 'INSUFF' : r.n_trades < 100 ? 'LOW' : null;
-                const better = r.brier_model < r.brier_market;
+                const better =
+                  r.brier_model != null && r.brier_market != null && r.brier_model < r.brier_market;
                 const delta = smDelta?.[r.asset];
                 return (
                   <div key={r.asset}>
@@ -195,8 +209,8 @@ export function LeaderboardView() {
                         {r.strategy}
                       </span>
                       <span className="text-right font-extrabold text-[13px] text-fg">
-                        {r.profit_factor.toFixed(2)}
-                        {delta !== undefined && (
+                        {pfText(r)}
+                        {delta != null && !Number.isNaN(delta) && (
                           <span
                             className="block text-[8px] font-normal"
                             style={{ color: delta >= 0 ? 'var(--green)' : 'var(--red)' }}
@@ -206,13 +220,18 @@ export function LeaderboardView() {
                         )}
                       </span>
                       <span className="text-right text-fg">
-                        {(r.pl_ratio_pct >= 0 ? '+' : '') + r.pl_ratio_pct}%
+                        {r.pl_ratio_pct == null
+                          ? '\u2014'
+                          : (r.pl_ratio_pct >= 0 ? '+' : '') + r.pl_ratio_pct.toFixed(0) + '%'}
                       </span>
-                      <span className="text-right text-fg">{signedCents(r.net_pnl_per_contract)}</span>
+                      <span className="text-right text-fg">{maybe(r.net_pnl_per_contract, signedCents)}</span>
                       <span className="text-right text-fg">
-                        {(r.return_on_capital >= 0 ? '+' : MINUS) + Math.abs(r.return_on_capital * 100).toFixed(0)}%
+                        {r.return_on_capital == null
+                          ? '\u2014'
+                          : (r.return_on_capital >= 0 ? '+' : MINUS) +
+                            Math.abs(r.return_on_capital * 100).toFixed(0) + '%'}
                       </span>
-                      <span className="text-right text-fg">{pct(r.hit_rate)}</span>
+                      <span className="text-right text-fg">{maybe(r.hit_rate, (v) => pct(v))}</span>
                       <span className="text-right">
                         <span
                           className="font-bold"
@@ -221,17 +240,16 @@ export function LeaderboardView() {
                             borderBottom: better ? '1px solid var(--green)' : 'none',
                           }}
                         >
-                          {fmtBrier(r.brier_model)}
+                          {maybe(r.brier_model, fmtBrier)}
                         </span>
-                        <span className="text-faint">/{fmtBrier(r.brier_market)}</span>
+                        <span className="text-faint">/{maybe(r.brier_market, fmtBrier)}</span>
                       </span>
-                      <span className="text-right text-dim">{r.signals_per_day}</span>
-                      <span className="text-right text-dim">{pct(r.fill_rate)}</span>
+                      <span className="text-right text-dim">{nf(r.signals_per_day, 1)}</span>
+                      <span className="text-right text-dim">{maybe(r.fill_rate, (v) => pct(v))}</span>
                       <span className="text-right text-dim">
-                        {r.avg_spread_cents.toFixed(1)}
-                        {CENT}
+                        {maybe(r.avg_spread_cents, (v) => v.toFixed(1) + CENT)}
                       </span>
-                      <span className="text-right text-redsoft">${r.max_drawdown}</span>
+                      <span className="text-right text-redsoft">${nf(r.max_drawdown, 2)}</span>
                       <span className="text-right text-fg">
                         {r.n_trades}{' '}
                         {badge && (
@@ -311,7 +329,7 @@ export function LeaderboardView() {
                 <div>
                   <div className="text-[8px] tracking-[0.1em] text-faint mb-[3px]">AVG FILL RATE</div>
                   <div className="text-[18px] font-extrabold text-fg">
-                    {rows.length ? Math.round((rows.reduce((t, r) => t + r.fill_rate, 0) / rows.length) * 100) + '%' : '—'}
+                    {rows.length ? Math.round((rows.reduce((t, r) => t + (r.fill_rate ?? 0), 0) / rows.length) * 100) + '%' : '—'}
                   </div>
                 </div>
               </div>
@@ -322,10 +340,10 @@ export function LeaderboardView() {
                       <span className="text-faint">best market</span>
                       <span>
                         <span className="font-extrabold text-fg">
-                          {[...rows].sort((a, b) => b.profit_factor - a.profit_factor)[0].asset}
+                          {[...rows].sort((a, b) => (b.profit_factor ?? 0) - (a.profit_factor ?? 0))[0].asset}
                         </span>{' '}
                         <span className="text-green">
-                          PF {[...rows].sort((a, b) => b.profit_factor - a.profit_factor)[0].profit_factor.toFixed(2)}
+                          PF {[...rows].sort((a, b) => (b.profit_factor ?? 0) - (a.profit_factor ?? 0))[0].profit_factor?.toFixed(2) ?? '\u2014'}
                         </span>
                       </span>
                     </div>
@@ -333,10 +351,10 @@ export function LeaderboardView() {
                       <span className="text-faint">worst market</span>
                       <span>
                         <span className="font-extrabold text-fg">
-                          {[...rows].sort((a, b) => a.profit_factor - b.profit_factor)[0].asset}
+                          {[...rows].sort((a, b) => (a.profit_factor ?? 0) - (b.profit_factor ?? 0))[0].asset}
                         </span>{' '}
                         <span className="text-red">
-                          PF {[...rows].sort((a, b) => a.profit_factor - b.profit_factor)[0].profit_factor.toFixed(2)}
+                          PF {[...rows].sort((a, b) => (a.profit_factor ?? 0) - (b.profit_factor ?? 0))[0].profit_factor?.toFixed(2) ?? '\u2014'}
                         </span>
                       </span>
                     </div>
@@ -365,17 +383,17 @@ export function LeaderboardView() {
                     <span
                       className="absolute left-0 top-0 bottom-0 rounded-[2px] opacity-85"
                       style={{
-                        width: `${Math.min(r.profit_factor / 2, 1) * 100}%`,
-                        background: r.profit_factor >= 1 ? 'var(--indigo)' : 'var(--pf-neg)',
+                        width: `${Math.min((r.profit_factor ?? 0) / 2, 1) * 100}%`,
+                        background: (r.profit_factor ?? 0) >= 1 ? 'var(--indigo)' : 'var(--pf-neg)',
                       }}
                     />
                     <span className="absolute left-1/2 -top-0.5 -bottom-0.5 w-px" style={{ background: 'var(--strike)' }} />
                   </span>
                   <span
                     className="w-8 text-right font-bold"
-                    style={{ color: r.profit_factor >= 1 ? 'var(--fg)' : 'var(--red-soft)' }}
+                    style={{ color: (r.profit_factor ?? 0) >= 1 ? 'var(--fg)' : 'var(--red-soft)' }}
                   >
-                    {r.profit_factor.toFixed(2)}
+                    {pfText(r)}
                   </span>
                 </div>
               ))}
@@ -391,6 +409,7 @@ export function LeaderboardView() {
                 </span>
               </div>
               {rows.map((r) => {
+                if (r.brier_model == null || r.brier_market == null) return null;
                 const pos = (v: number) => Math.max(0, Math.min(100, ((v - 0.15) / 0.15) * 100)) * 0.94;
                 const mL = pos(r.brier_model);
                 const kL = pos(r.brier_market);
@@ -420,9 +439,9 @@ export function LeaderboardView() {
                     </span>
                     <span className="w-[60px] text-right">
                       <span className="font-bold" style={{ color: better ? 'var(--green)' : 'var(--dim)' }}>
-                        {fmtBrier(r.brier_model)}
+                        {maybe(r.brier_model, fmtBrier)}
                       </span>
-                      <span className="text-faint">/{fmtBrier(r.brier_market)}</span>
+                      <span className="text-faint">/{maybe(r.brier_market, fmtBrier)}</span>
                     </span>
                   </div>
                 );

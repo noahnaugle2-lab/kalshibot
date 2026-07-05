@@ -47,8 +47,8 @@ export function RowExpansion({
             const r = results[i].rows.find((x) => x.asset === row.asset);
             return {
               name,
-              pf: r ? r.profit_factor.toFixed(2) : '—',
-              hit: r ? pct(r.hit_rate) : '—',
+              pf: r?.profit_factor != null ? r.profit_factor.toFixed(2) : '—',
+              hit: r?.hit_rate != null ? pct(r.hit_rate) : '—',
               n: r?.n_trades ?? 0,
             };
           }),

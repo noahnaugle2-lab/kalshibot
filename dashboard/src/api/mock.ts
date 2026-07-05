@@ -570,7 +570,7 @@ export function getLeaderboard(params: {
       recommendation: r.rec,
     };
   });
-  rows.sort((a, b) => b.profit_factor - a.profit_factor);
+  rows.sort((a, b) => (b.profit_factor ?? 0) - (a.profit_factor ?? 0));
   rows.forEach((r, i) => (r.rank = i + 1));
   return { computed_at: world.computedAt, rows };
 }
