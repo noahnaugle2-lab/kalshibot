@@ -1,0 +1,22 @@
+# Cloudflare Tunnel config for KalshiBot — runs as its own tunnel/service,
+# fully separate from any other tunnel on this machine (which keep using
+# ~/.cloudflared/config.yml). Launched via:
+#   cloudflared tunnel --config deploy/cloudflared-kalshibot.yml run kalshibot
+# (the launchd plist does this; see deploy/launchd/)
+
+tunnel: kalshibot
+credentials-file: /Users/noahnaugle/.cloudflared/2a231536-a9a7-479f-90ab-4098465efc8f.json
+
+ingress:
+  # Dashboard + API + WebSocket. App-level bearer auth is mandatory on every
+  # route (no unauthenticated surface exists); adding Cloudflare Access in
+  # front via the dashboard is still recommended for defense in depth.
+  - hostname: kalshi.naugle.us
+    service: http://localhost:8777
+
+  # n8n UI/webhooks. DNS for this hostname is only routed AFTER the n8n
+  # owner account exists (a fresh n8n lets the first visitor claim it).
+  - hostname: n8n.naugle.us
+    service: http://localhost:5678
+
+  - service: http_status:404

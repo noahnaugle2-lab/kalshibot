@@ -23,7 +23,9 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect,
+)
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 logger = logging.getLogger(__name__)
@@ -61,14 +63,31 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
     if not trader.settings.dashboard_token:
         logger.warning("DASHBOARD_TOKEN unset — generated for this session: %s", token)
     bearer = HTTPBearer(auto_error=False)
+    failed_auth: dict[str, list[float]] = {}  # client ip -> failure timestamps
+
+    def _client_ip(request: Request) -> str:
+        # behind the Cloudflare tunnel the real client is in this header
+        return request.headers.get("CF-Connecting-IP") or (
+            request.client.host if request.client else "unknown"
+        )
 
     def require_auth(
+        request: Request,
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     ) -> None:
+        ip = _client_ip(request)
+        now = time.time()
+        recent = [t for t in failed_auth.get(ip, []) if now - t < 60]
+        if len(recent) >= 10:
+            failed_auth[ip] = recent
+            raise HTTPException(status_code=429, detail="too many auth failures")
         if credentials is None or not secrets.compare_digest(
             credentials.credentials, token
         ):
+            recent.append(now)
+            failed_auth[ip] = recent
             raise HTTPException(status_code=401, detail="invalid token")
+        failed_auth.pop(ip, None)
 
     db = trader.db
 

@@ -91,6 +91,41 @@ tests/                    unit tests
 data/                     runtime data (gitignored)
 ```
 
+## Deployment
+
+- **Public URL**: https://kalshi.naugle.us via Cloudflare Tunnel `kalshibot`
+  (config: `deploy/cloudflared-kalshibot.yml`, separate from other tunnels on
+  the machine). DNS routed with
+  `cloudflared tunnel --config deploy/cloudflared-kalshibot.yml route dns kalshibot kalshi.naugle.us`.
+- **Auth**: every `/api` route and `/ws/live` require `DASHBOARD_TOKEN`
+  (bearer / `?token=`); failed attempts are rate-limited per IP; API docs are
+  disabled. The n8n REST surface (`/n8n/*`) uses its own
+  `N8N_API_BEARER_TOKEN`. Adding Cloudflare Access in front (Cloudflare
+  dashboard → Zero Trust → Access) is recommended defense in depth.
+- **n8n**: `cd deploy && docker compose up -d` (binds 127.0.0.1:5678).
+  **Create the n8n owner account at http://127.0.0.1:5678 BEFORE routing
+  n8n.naugle.us DNS** — a fresh n8n lets its first visitor claim it. Then:
+  `cloudflared tunnel --config deploy/cloudflared-kalshibot.yml route dns kalshibot n8n.naugle.us`.
+- **Dead man's switch**: create a check at healthchecks.io, set
+  `HEALTHCHECKS_PING_URL` in `.env`. Pings fire only when feeds, books, scan
+  loop, and DB are all healthy; unhealthy states ping `/fail` with reasons.
+- **Supervision**: launchd plists in `deploy/launchd/` (bot + tunnel,
+  restart-on-crash and on-reboot). **macOS TCC caveat**: launchd agents are
+  denied access to `~/Documents`, where this repo lives, so the services hang
+  unless you either (a) grant Full Disk Access to
+  `/opt/homebrew/bin/cloudflared` and the venv's `python` in System Settings →
+  Privacy & Security, or (b) move the repo outside `~/Documents` and update
+  the paths in the plists + tunnel config. Until one of those is done, run
+  both with `nohup` (see Usage).
+
+### Exposure checklist
+- [ ] `curl https://kalshi.naugle.us/api/status` → 401 (auth enforced)
+- [ ] `/docs`, `/openapi.json` → 404 (disabled)
+- [ ] WS `wss://kalshi.naugle.us/ws/live?token=<bad>` → rejected
+- [ ] n8n owner account exists before n8n.naugle.us resolves
+- [ ] `DASHBOARD_TOKEN` and `N8N_API_BEARER_TOKEN` set and distinct
+- [ ] SQLite/metrics/tape not reachable from any public route
+
 ## License
 
 GNU General Public License v3.0 or later — see [LICENSE](LICENSE).
