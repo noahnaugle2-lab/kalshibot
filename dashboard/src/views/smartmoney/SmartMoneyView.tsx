@@ -171,10 +171,13 @@ export function SmartMoneyView() {
                 >
                   <button
                     onClick={() => copyAddress(w.address)}
-                    title="click to copy"
-                    className="text-[9px] text-indigosoft cursor-pointer bg-transparent border-0 p-0 text-left inline-flex items-center gap-1"
+                    title={`${w.address} — click to copy`}
+                    className="text-[9px] text-indigosoft cursor-pointer bg-transparent border-0 p-0 text-left inline-flex items-center gap-1 overflow-hidden"
                   >
-                    {w.address} <Copy size={9} />
+                    <span className="truncate">
+                      {w.address.slice(0, 6)}…{w.address.slice(-4)}
+                    </span>{' '}
+                    <Copy size={9} className="shrink-0" />
                   </button>
                   <span className="flex items-center gap-2">
                     <span className="font-extrabold text-[12px] text-fg">{pct(w.win_rate)}</span>
