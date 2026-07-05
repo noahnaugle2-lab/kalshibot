@@ -197,15 +197,27 @@ class ShadowTrader(Observer):
             "(SELECT 1 FROM sim_positions p WHERE p.run_id = f.run_id "
             " AND p.market_ticker = f.market_ticker)",
         )
+        from kalshibot.features.engine import regime_for
+
         for f in rows:
             intent = OrderIntent(f["intent"])
             side = "yes" if intent is OrderIntent.BUY_YES else "no"
+            # regime is recoverable: entry ts vs the market's recorded close
+            market_row = self.db.query(
+                "SELECT close_ts FROM markets WHERE ticker = ?",
+                (f["market_ticker"],),
+            )
+            if market_row and market_row[0]["close_ts"]:
+                remaining = market_row[0]["close_ts"] - f["ts"]
+                entry_regime = regime_for(max(0.0, remaining)).value
+            else:
+                entry_regime = "UNKNOWN"
             self.positions[f["market_ticker"]] = OpenPosition(
                 asset=f["asset"], market_ticker=f["market_ticker"],
                 strategy_key=f["strategy_key"], side=side,
                 contracts=f["contracts"], avg_price=f["price"],
                 fees=f["fee"], entry_ts=f["ts"],
-                entry_regime="UNKNOWN", reason=f["reason"] or "recovered",
+                entry_regime=entry_regime, reason=f["reason"] or "recovered",
                 run_id=f["run_id"],
             )
             logger.info("recovered open position: %s %s %.0f @ %.3f (%s)",
