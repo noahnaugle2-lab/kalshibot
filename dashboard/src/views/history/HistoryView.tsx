@@ -16,7 +16,7 @@ const selectCls =
   'bg-panel2 border border-linestrong text-bright text-[9px] px-2 py-1 rounded outline-none cursor-pointer';
 
 export function HistoryView() {
-  const { epoch, nowSec, recentTrades } = useApp();
+  const { epoch, nowSec, recentTrades, live } = useApp();
   const [searchParams] = useSearchParams();
   const [range, setRange] = useState<HistRange>('campaign');
   const [basis, setBasis] = useState<LeaderboardBasis>('net');
@@ -26,6 +26,10 @@ export function HistoryView() {
   });
   const [sourceFilter, setSourceFilter] = useState<string>('ALL');
   const [hidden, setHidden] = useState<Partial<Record<Asset, boolean>>>({});
+  const [hover, setHover] = useState<{
+    asset: Asset; ts: number; pnl: number; cx: number; cy: number;
+    px: number; py: number;
+  } | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [equity, setEquity] = useState<EquityResponse | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -98,7 +102,10 @@ export function HistoryView() {
   // ---- equity chart geometry ----
   const chart = useMemo(() => {
     if (!equity) return null;
-    const sliced = equity.series.map((s) => {
+    const sliced = equity.series
+      // paused assets (e.g. BTC kept as a data source) stay off the chart
+      .filter((s) => !live[s.asset]?.paused)
+      .map((s) => {
       const pts = s.points.filter((p) => p[0] >= cutoff);
       const base = pts.length ? pts[0][1] : 0;
       return { asset: s.asset, pts: pts.map((p) => [p[0], p[1] - base] as [number, number]) };
@@ -116,6 +123,7 @@ export function HistoryView() {
       .map((s) => ({
         asset: s.asset,
         d: s.pts.map((p) => `${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' '),
+        scaled: s.pts.map((p) => ({ cx: x(p[0]), cy: y(p[1]), ts: p[0], pnl: p[1] })),
       }));
     // legend PnL over the range
     const legend = sliced.map((s) => ({
@@ -137,7 +145,7 @@ export function HistoryView() {
       }
     }
     return { series, legend, zeroY: y(0).toFixed(1), labels };
-  }, [equity, cutoff, hidden, nowSec, range]);
+  }, [equity, cutoff, hidden, nowSec, range, live]);
 
   const dayOne = loaded && allTrades.length === 0 && (!equity || equity.series.every((s) => s.points.length < 2));
 
@@ -188,7 +196,43 @@ export function HistoryView() {
                 </button>
               ))}
             </div>
-            <svg width="100%" height="260" viewBox="0 0 800 240" preserveAspectRatio="none" className="block">
+            <div className="relative">
+            <svg
+              width="100%"
+              height="260"
+              viewBox="0 0 800 240"
+              preserveAspectRatio="none"
+              className="block"
+              onMouseLeave={() => setHover(null)}
+              onMouseMove={(e) => {
+                if (!chart) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const mx = ((e.clientX - rect.left) / rect.width) * 800;
+                const my = ((e.clientY - rect.top) / rect.height) * 240;
+                let best: typeof hover = null;
+                let bestDist = 26; // viewBox-units grab radius
+                for (const s of chart.series) {
+                  // nearest point by x (points are time-ordered)
+                  let nearest = s.scaled[0];
+                  let dx = Infinity;
+                  for (const p of s.scaled) {
+                    const d = Math.abs(p.cx - mx);
+                    if (d < dx) { dx = d; nearest = p; }
+                  }
+                  const dist = Math.abs(nearest.cy - my);
+                  if (dist < bestDist) {
+                    bestDist = dist;
+                    best = {
+                      asset: s.asset, ts: nearest.ts, pnl: nearest.pnl,
+                      cx: nearest.cx, cy: nearest.cy,
+                      px: ((e.clientX - rect.left) / rect.width) * 100,
+                      py: ((e.clientY - rect.top) / rect.height) * 100,
+                    };
+                  }
+                }
+                setHover(best);
+              }}
+            >
               <line
                 x1="0"
                 x2="800"
@@ -204,11 +248,39 @@ export function HistoryView() {
                   points={s.d}
                   fill="none"
                   stroke={ASSET_COLOR[s.asset]}
-                  strokeWidth={1.2}
-                  opacity={0.9}
+                  strokeWidth={hover?.asset === s.asset ? 2.4 : 1.2}
+                  opacity={hover && hover.asset !== s.asset ? 0.35 : 0.9}
                 />
               ))}
+              {hover && (
+                <circle
+                  cx={hover.cx}
+                  cy={hover.cy}
+                  r={3.5}
+                  fill={ASSET_COLOR[hover.asset]}
+                  stroke="var(--panel)"
+                  strokeWidth={1.2}
+                />
+              )}
             </svg>
+            {hover && (
+              <div
+                className="absolute pointer-events-none z-10 bg-panel2 border border-strong rounded px-2 py-1 text-[9px] whitespace-nowrap"
+                style={{
+                  left: `${Math.min(hover.px, 82)}%`,
+                  top: `${Math.max(hover.py - 12, 0)}%`,
+                }}
+              >
+                <span className="inline-block w-[7px] h-[7px] rounded-[2px] mr-1 align-middle"
+                  style={{ background: ASSET_COLOR[hover.asset] }} />
+                <span className="font-extrabold text-fg">{hover.asset}</span>{' '}
+                <span style={{ color: hover.pnl >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                  {money(hover.pnl)}
+                </span>{' '}
+                <span className="text-faint">{fmtUtcTime(hover.ts)}</span>
+              </div>
+            )}
+            </div>
             <div className="flex justify-between text-[8px] text-ghost mt-1">
               {(chart?.labels ?? []).map((l, i) => (
                 <span key={i}>{l}</span>
