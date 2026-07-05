@@ -215,15 +215,49 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
 
     # --------------------------------------------------------- smartmoney
 
+    PATTERN_DESCRIPTIONS = {
+        "taker_imbalance_mid": "one-sided aggressive taker flow during the mid window",
+        "late_aggression": "one-sided taker flow in the late window, pre-blackout",
+        "large_prints": "direction of unusually large prints (>= p90 size)",
+        "depth_imbalance_mid": "persistent one-sided resting depth near the touch (mid)",
+    }
+
     @app.get("/api/smartmoney", dependencies=[Depends(require_auth)])
     def smartmoney() -> dict:
-        patterns = [dict(r) for r in db.query(
-            "SELECT * FROM flow_patterns ORDER BY pattern, asset")]
-        wallets = [dict(r) for r in db.query(
+        # contract shape (brief §4 / dashboard types.ts) — DB rows are
+        # per (pattern, asset); the contract wants one row per pattern
+        by_pattern: dict[str, dict] = {}
+        for r in db.query("SELECT * FROM flow_patterns ORDER BY pattern, asset"):
+            agg = by_pattern.setdefault(r["pattern"], {
+                "id": r["pattern"],
+                "description": PATTERN_DESCRIPTIONS.get(r["pattern"], r["pattern"]),
+                "n_30d": 0, "hits_30d": 0,
+                "status": r["status"], "current_leans": {},
+            })
+            agg["n_30d"] += r["n_30d"] or 0
+            agg["hits_30d"] += r["hits_30d"] or 0
+            if r["status"] == "active":
+                agg["status"] = "active"  # active anywhere shows active
+        patterns = []
+        for agg in by_pattern.values():
+            hits = agg.pop("hits_30d")
+            agg["hit_rate_30d"] = hits / agg["n_30d"] if agg["n_30d"] else None
+            patterns.append(agg)
+
+        wallets = [{
+            "address": r["wallet"],
+            "win_rate": r["win_rate"], "ci_low": r["ci_low"], "ci_high": r["ci_high"],
+            "n_resolved": r["n"], "profit_usd": r["pnl"],
+            "avg_entry_seconds_after_open": r["avg_entry_offset_s"],
+            "qualified": bool(r["qualified"]),
+            "current_positions": [],  # populated when qualified wallets exist
+        } for r in db.query(
             "SELECT * FROM smart_wallets ORDER BY qualified DESC, ci_low DESC LIMIT 50")]
+
         merged = {
             asset: {"lean": sm.lean, "strength": sm.strength}
             for asset, sm in trader.smart.items()
+            if sm.lean in ("UP", "DOWN")  # contract: NEUTRAL = absent
         }
         return {"patterns": patterns, "wallets": wallets, "merged_leans": merged}
 

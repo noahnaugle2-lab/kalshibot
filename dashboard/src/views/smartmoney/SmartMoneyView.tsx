@@ -90,12 +90,12 @@ export function SmartMoneyView() {
               <span>CURRENT LEANS</span>
             </div>
             {(data?.patterns ?? []).map((p) => {
-              const leans = Object.entries(p.current_leans).filter(([, v]) => v);
+              const leans = Object.entries(p.current_leans ?? {}).filter(([, v]) => v);
               return (
                 <div
                   key={p.id}
                   className="grid grid-cols-[170px_1fr_90px_60px_80px_200px] gap-2.5 px-3.5 py-2.5 border-b border-linesub text-[10px] items-center"
-                  style={{ opacity: p.status === 'benched' ? 0.45 : 1 }}
+                  style={{ opacity: p.status !== 'active' ? 0.6 : 1 }}
                 >
                   <span className="font-bold text-[9px] text-fg">{p.id}</span>
                   <span className="text-dim text-[9px]">{p.description}</span>
@@ -103,10 +103,10 @@ export function SmartMoneyView() {
                     className="text-right font-extrabold text-[12px]"
                     style={{
                       color:
-                        p.hit_rate_30d >= 0.55 ? 'var(--green)' : p.hit_rate_30d >= 0.5 ? 'var(--fg)' : 'var(--red)',
+                        (p.hit_rate_30d ?? 0) >= 0.55 ? 'var(--green)' : (p.hit_rate_30d ?? 0.5) >= 0.5 ? 'var(--fg)' : 'var(--red)',
                     }}
                   >
-                    {pct(p.hit_rate_30d)}
+                    {p.hit_rate_30d == null ? '\u2014' : pct(p.hit_rate_30d)}
                   </span>
                   <span className="text-right text-dim">
                     {p.n_30d}{' '}
@@ -197,13 +197,21 @@ export function SmartMoneyView() {
                     </span>
                   </span>
                   <span className="text-right text-dim">{w.n_resolved}</span>
-                  <span className="text-right text-green font-bold">+${(w.profit_usd / 1000).toFixed(1)}k</span>
-                  <span className="text-right text-dim">{w.avg_entry_seconds_after_open}s after open</span>
+                  <span
+                    className="text-right font-bold"
+                    style={{ color: (w.profit_usd ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}
+                  >
+                    {(w.profit_usd ?? 0) >= 0 ? '+' : '\u2212'}$
+                    {Math.abs(w.profit_usd ?? 0) >= 1000
+                      ? (Math.abs(w.profit_usd) / 1000).toFixed(1) + 'k'
+                      : Math.abs(w.profit_usd ?? 0).toFixed(2)}
+                  </span>
+                  <span className="text-right text-dim">{Math.round(w.avg_entry_seconds_after_open ?? 0)}s after open</span>
                   <span className="flex gap-1.5 flex-wrap">
-                    {w.current_positions.length === 0 ? (
+                    {(w.current_positions ?? []).length === 0 ? (
                       <span className="text-faint text-[9px]">— flat</span>
                     ) : (
-                      w.current_positions.map((p, i) => (
+                      (w.current_positions ?? []).map((p, i) => (
                         <span
                           key={i}
                           className="bg-panel2 border border-line rounded-[3px] px-2 py-0.5 text-[9px] inline-flex items-center gap-1"

@@ -174,9 +174,11 @@ export interface EquityResponse { series: EquitySeries[] }
 export interface FlowPattern {
   id: string;
   description: string;
-  hit_rate_30d: number;
+  hit_rate_30d: number | null; // null until a pattern has 30d samples
   n_30d: number;
-  status: 'active' | 'benched';
+  // candidate = mined but not yet validated on held-out windows; it has no
+  // influence on live decisions until promoted to active
+  status: 'active' | 'benched' | 'candidate';
   current_leans: Partial<Record<Asset, Lean | null>>;
 }
 export interface Wallet {
@@ -185,6 +187,7 @@ export interface Wallet {
   ci_low: number;
   ci_high: number;
   n_resolved: number;
+  qualified?: boolean;
   profit_usd: number;
   avg_entry_seconds_after_open: number;
   current_positions: { asset: Asset; side: Lean; size_usd: number }[];
