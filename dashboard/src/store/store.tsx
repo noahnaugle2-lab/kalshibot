@@ -158,7 +158,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         switch (m.type) {
           case 'snapshot': {
             setLive((prev) => ({ ...prev, [m.asset]: m.data }));
-            const spot = m.data.snapshot.spot;
+            const spot = m.data.snapshot?.spot ?? null;
             if (spot !== null) {
               const arr = historyRef.current[m.asset] ?? (historyRef.current[m.asset] = []);
               if (arr[arr.length - 1] !== spot) {

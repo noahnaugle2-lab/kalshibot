@@ -94,14 +94,16 @@ export interface SessionPnl {
 export interface LiveAsset {
   asset: Asset;
   paused: boolean;
+  // null during the window-rollover gap (Kalshi lists the next market up to
+  // ~35s after close) — cards must render a between-windows state
   market: {
     ticker: string;
     open_ts: number;
     close_ts: number;
-    floor_strike: number;
+    floor_strike: number | null;
     status: string;
-  };
-  snapshot: FeatureSnapshot;
+  } | null;
+  snapshot: FeatureSnapshot | null;
   smart_money: SmartMoneyLean | null;
   position: Position | null;
   session_pnl: SessionPnl;

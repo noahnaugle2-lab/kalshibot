@@ -11,6 +11,7 @@ export interface CardComputed {
 }
 
 export function computeEdge(la: LiveAsset): { side: 'YES' | 'NO'; cents: number } | null {
+  if (!la.snapshot) return null;
   const ey = la.snapshot.edge_yes_net;
   const en = la.snapshot.edge_no_net;
   if (ey === null && en === null) return null;
@@ -39,19 +40,59 @@ export function AssetCard({
   onTogglePause: () => void;
 }) {
   const snap = la.snapshot;
+  const market = la.market;
   const sym = la.asset;
   const color = ASSET_COLOR[sym];
   const dp = ASSET_DP[sym];
 
-  const remaining = Math.max(0, la.market.close_ts - nowSec);
+  const remaining = Math.max(0, (market?.close_ts ?? nowSec) - nowSec);
   const regime = regimeOf(remaining);
-  const rawAge = Math.max(0, nowSec - snap.ts);
+  const rawAge = snap ? Math.max(0, nowSec - snap.ts) : 0;
   const assetStale = rawAge > 5;
   const stale = assetStale || !wsConnected;
   const staleAge = Math.floor(rawAge);
 
-  const flash = useValueFlash(snap.spot, !stale);
+  // hooks run unconditionally (before any early return) to keep order stable
+  const flash = useValueFlash(snap?.spot ?? null, !stale);
   const spotColor = flash === 1 ? 'var(--green)' : flash === -1 ? 'var(--red)' : 'var(--fg)';
+
+  if (!market || !snap) {
+    // window-rollover gap: Kalshi lists the next market up to ~35s after
+    // close. Render a quiet placeholder instead of crashing the view.
+    return (
+      <div className="bg-panel border border-line rounded-md overflow-hidden opacity-75">
+        <div className="flex items-center gap-2 px-[13px] py-[10px]">
+          <span className="w-[9px] h-[9px] rounded-[2px]" style={{ background: color }} />
+          <span className="font-extrabold text-[15px] text-fg">{sym}</span>
+          <span className="text-[8px] font-bold tracking-[0.08em] px-1.5 py-0.5 rounded-[3px] bg-graychip text-dim">
+            ROLLING
+          </span>
+          {la.paused && (
+            <span className="text-[8px] font-bold tracking-[0.08em] px-1.5 py-0.5 rounded-[3px] bg-graychip text-dim">
+              PAUSED
+            </span>
+          )}
+        </div>
+        <div className="px-[13px] py-6 text-[9px] text-faint">
+          waiting for the next 15:00 window to list…
+        </div>
+        <div className="px-[13px] py-[9px] border-t border-linesub text-right text-[10px]">
+          <span
+            style={{
+              color: la.session_pnl.net > 0 ? 'var(--green)' : la.session_pnl.net < 0 ? 'var(--red)' : 'var(--faint)',
+            }}
+          >
+            {money(la.session_pnl.net)}{' '}
+            <span className="text-ghost">
+              net · {la.session_pnl.trades > 0
+                ? `${la.session_pnl.wins}W\u2013${la.session_pnl.trades - la.session_pnl.wins}L`
+                : '0t'}
+            </span>
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   const dist = snap.distance_dollars ?? (snap.spot !== null && snap.floor_strike !== null ? snap.spot - snap.floor_strike : null);
 
@@ -118,7 +159,7 @@ export function AssetCard({
 
       {/* ticker */}
       <div className="px-[13px] pb-1 text-[8px] text-ghost overflow-hidden text-ellipsis whitespace-nowrap">
-        {la.market.ticker}
+        {market.ticker}
       </div>
 
       {/* sparkline + spot overlay */}

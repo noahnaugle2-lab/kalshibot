@@ -66,9 +66,9 @@ export function DetailDrawer({ la, onClose }: { la: LiveAsset; onClose: () => vo
   const color = ASSET_COLOR[sym];
   const dp = ASSET_DP[sym];
 
-  const remaining = Math.max(0, la.market.close_ts - nowSec);
+  const remaining = Math.max(0, (la.market?.close_ts ?? nowSec) - nowSec);
   const regime = regimeOf(remaining);
-  const age = Math.max(0, nowSec - snap.ts);
+  const age = snap ? Math.max(0, nowSec - snap.ts) : 0;
   const stale = age > 5;
 
   useEffect(() => {
@@ -84,15 +84,31 @@ export function DetailDrawer({ la, onClose }: { la: LiveAsset; onClose: () => vo
     };
   }, [sym]);
 
+  const openTs = la.market?.open_ts ?? Infinity;  // rollover gap: no window yet
   const windowTrades = useMemo(() => {
     const seen = new Set<number>();
     return [...recentTrades, ...fetched]
-      .filter((t) => t.asset === sym && t.ts >= la.market.open_ts)
+      .filter((t) => t.asset === sym && t.ts >= openTs)
       .filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)))
       .sort((a, b) => b.ts - a.ts);
-  }, [recentTrades, fetched, sym, la.market.open_ts]);
+  }, [recentTrades, fetched, sym, openTs]);
 
-  const fields = buildFields(snap, dp);
+  const fields = snap ? buildFields(snap, dp) : [];
+
+  if (!la.market || !snap) {
+    // rollover gap: close the drawer's content gracefully
+    return (
+      <div className="fixed inset-0 z-40" onClick={onClose}>
+        <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.5)' }} />
+        <div
+          className="absolute right-0 top-0 bottom-0 w-[420px] bg-panel border-l border-line p-4 text-[10px] text-faint"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {sym}: waiting for the next window to list…
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
