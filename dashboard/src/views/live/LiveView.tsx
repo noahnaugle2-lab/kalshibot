@@ -14,7 +14,11 @@ export function LiveView() {
   const [drawer, setDrawer] = useState<Asset | null>(null);
 
   const ordered = useMemo(() => {
-    const list = ASSETS.map((sym) => live[sym]).filter((la): la is NonNullable<typeof la> => !!la);
+    // paused assets are hidden from the grid (still recording + manageable
+    // from CONFIG) — the live view shows only what's actually trading
+    const list = ASSETS.map((sym) => live[sym])
+      .filter((la): la is NonNullable<typeof la> => !!la)
+      .filter((la) => !la.paused);
     if (sort === 'edge') {
       return [...list].sort((a, b) => (computeEdge(b)?.cents ?? -Infinity) - (computeEdge(a)?.cents ?? -Infinity));
     }
@@ -23,6 +27,11 @@ export function LiveView() {
     }
     return list;
   }, [live, sort]);
+
+  const hidden = useMemo(
+    () => ASSETS.filter((sym) => live[sym]?.paused).map((sym) => sym),
+    [live],
+  );
 
   const drawerAsset = drawer ? live[drawer] : undefined;
 
@@ -55,28 +64,38 @@ export function LiveView() {
         </span>
       </div>
 
-      {ordered.length === 0 ? (
+      {ordered.length === 0 && hidden.length === 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {ASSETS.map((sym) => (
             <div key={sym} className="bg-panel border border-line rounded-md h-[248px] animate-pulseslow" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-          {ordered.map((la) => (
-            <AssetCard
-              key={la.asset}
-              la={la}
-              history={getSpotHistory(la.asset)}
-              nowSec={nowSec}
-              wsConnected={wsConnected}
-              killEngaged={killEngaged}
-              threshold={assetConfig[la.asset]?.edge_threshold_cents ?? 3}
-              onOpen={() => setDrawer(la.asset)}
-              onTogglePause={() => setAssetPaused(la.asset, !la.paused)}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {ordered.map((la) => (
+              <AssetCard
+                key={la.asset}
+                la={la}
+                history={getSpotHistory(la.asset)}
+                nowSec={nowSec}
+                wsConnected={wsConnected}
+                killEngaged={killEngaged}
+                threshold={assetConfig[la.asset]?.edge_threshold_cents ?? 3}
+                onOpen={() => setDrawer(la.asset)}
+                onTogglePause={() => setAssetPaused(la.asset, !la.paused)}
+              />
+            ))}
+          </div>
+
+          {hidden.length > 0 && (
+            <div className="mt-3 text-[9px] text-faint">
+              {hidden.length} paused asset{hidden.length > 1 ? 's' : ''} hidden ({hidden.join(', ')})
+              {' — still recording; manage in '}
+              <a href="/config" className="text-indigosoft hover:underline">CONFIG</a>
+            </div>
+          )}
+        </>
       )}
 
       {drawerAsset && <DetailDrawer la={drawerAsset} onClose={() => setDrawer(null)} />}
