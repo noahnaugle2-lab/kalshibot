@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Circle, Lock, Pause, Play } from 'lucide-react';
 import type { LiveAsset } from '../../api/types';
-import { cents, fmtCountdown, kfmt, maybe, money, num, regimeOf, signedNum, MINUS, DASH, CENT } from '../../lib/format';
+import { cents, fmtCountdown, kfmt, maybe, money, num, regimeOf, MINUS, DASH, CENT } from '../../lib/format';
 import { ASSET_COLOR, ASSET_DP, regimeChipStyle } from '../../lib/palette';
 import { Sparkline } from '../../components/Sparkline';
 import { useValueFlash } from '../../lib/useValueFlash';

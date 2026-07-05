@@ -353,6 +353,32 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
 
     # ----------------------------------------------------------------- ws
 
+    # ------------------------------------------------------------- static
+    # Serve the built React app same-origin (dashboard/dist). The shell is
+    # public (it holds no data); everything it fetches requires the bearer.
+
+    from kalshibot.config import PROJECT_ROOT
+
+    dist = PROJECT_ROOT / "dashboard" / "dist"
+    if dist.is_dir():
+        from fastapi.responses import FileResponse
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+        @app.get("/", include_in_schema=False)
+        def spa_root() -> FileResponse:
+            return FileResponse(dist / "index.html")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def spa_fallback(path: str) -> FileResponse:
+            if path.startswith(("api/", "ws/", "n8n/", "assets/")):
+                raise HTTPException(404)
+            file = dist / path
+            if file.is_file():
+                return FileResponse(file)
+            return FileResponse(dist / "index.html")  # client-side routes
+
     @app.websocket("/ws/live")
     async def ws_live(ws: WebSocket, token_param: str = Query("", alias="token")):
         if not secrets.compare_digest(token_param, token):
@@ -444,14 +470,40 @@ def _live_payload(trader, asset: str) -> dict:
 
 
 async def serve(trader, host: str = "127.0.0.1", port: int = 8777) -> None:
+    """Serve the API; retry binding while a predecessor finishes shutting down.
+
+    A graceful trader restart overlaps the old process (which holds the port
+    for up to ~10s) with the new one. A failed bind must not kill trading —
+    retry with backoff, and give up on the API (not the trader) after that.
+    """
+    import socket
+
     import uvicorn
+
+    for attempt in range(12):
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.bind((host, port))
+            probe.close()
+            break
+        except OSError:
+            probe.close()
+            if attempt == 0:
+                logger.info("port %d busy (predecessor shutting down?), waiting", port)
+            await asyncio.sleep(2.5)
+    else:
+        logger.error("port %d never freed — dashboard API disabled, trading continues", port)
+        return
 
     config = uvicorn.Config(
         create_app(trader), host=host, port=port, log_level="warning", loop="asyncio",
     )
     server = uvicorn.Server(config)
     logger.info("dashboard API listening on http://%s:%d", host, port)
-    await server.serve()
+    try:
+        await server.serve()
+    except SystemExit:
+        logger.error("dashboard API failed to start — trading continues without it")
 
 
 def utcnow_iso() -> str:

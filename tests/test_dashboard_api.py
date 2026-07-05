@@ -130,8 +130,13 @@ def test_config_put_applies_and_audits(client, trader):
 
 
 def test_docs_disabled(client):
-    assert client.get("/docs").status_code == 404
-    assert client.get("/openapi.json").status_code == 404
+    # with the SPA catch-all, /docs and /openapi.json serve the app shell —
+    # what matters is that no OpenAPI schema or Swagger UI leaks
+    for path in ("/docs", "/openapi.json"):
+        response = client.get(path)
+        assert response.status_code in (200, 404)
+        assert "openapi" not in response.text.lower()
+        assert "swagger" not in response.text.lower()
 
 
 def test_ws_rejects_bad_token(client):

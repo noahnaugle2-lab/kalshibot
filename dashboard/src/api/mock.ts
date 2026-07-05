@@ -328,6 +328,8 @@ function initWorld(scenario: Scenario): World {
     }
   }
 
+  trades.sort((a, b) => b.ts - a.ts);
+
   // ---- blackouts ----
   const blackouts: Blackout[] = [
     { label: 'FOMC rate decision', start: Date.UTC(2026, 6, 29, 18, 0) / 1000, end: Date.UTC(2026, 6, 29, 19, 30) / 1000, affected_assets: 'ALL' },
