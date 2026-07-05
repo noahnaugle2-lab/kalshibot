@@ -45,34 +45,42 @@ export function fmtCountdown(s: number): string {
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
 }
 
-const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+// All display times are US Eastern, 12-hour clock (owner preference).
+// Intl handles EST/EDT automatically via the IANA zone.
+const TZ = 'America/New_York';
 
-/** "JUL 03 14:22" (UTC). */
+function parts(ts: number, opts: Intl.DateTimeFormatOptions): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const p of new Intl.DateTimeFormat('en-US', { timeZone: TZ, ...opts }).formatToParts(
+    new Date(ts * 1000),
+  )) {
+    out[p.type] = p.value;
+  }
+  return out;
+}
+
+/** "JUL 03 2:22 PM" (ET). */
 export function fmtUtcTime(ts: number): string {
-  const d = new Date(ts * 1000);
-  return `${MONTHS[d.getUTCMonth()]} ${String(d.getUTCDate()).padStart(2, '0')} ${String(
-    d.getUTCHours(),
-  ).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  const p = parts(ts, { month: 'short', day: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${p.month.toUpperCase()} ${p.day} ${p.hour}:${p.minute} ${p.dayPeriod}`;
 }
 
-/** "JUL 03" (UTC). */
+/** "JUL 03" (ET). */
 export function fmtUtcDate(ts: number): string {
-  const d = new Date(ts * 1000);
-  return `${MONTHS[d.getUTCMonth()]} ${String(d.getUTCDate()).padStart(2, '0')}`;
+  const p = parts(ts, { month: 'short', day: '2-digit' });
+  return `${p.month.toUpperCase()} ${p.day}`;
 }
 
-/** "16:45:02 UTC" (UTC). */
+/** "4:45:02 PM ET". */
 export function fmtUtcClock(ts: number): string {
-  const d = new Date(ts * 1000);
-  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}:${String(
-    d.getUTCSeconds(),
-  ).padStart(2, '0')} UTC`;
+  const p = parts(ts, { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+  return `${p.hour}:${p.minute}:${p.second} ${p.dayPeriod} ET`;
 }
 
-/** "18:00" (UTC). */
+/** "6:00 PM" (ET). */
 export function fmtUtcHm(ts: number): string {
-  const d = new Date(ts * 1000);
-  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  const p = parts(ts, { hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${p.hour}:${p.minute} ${p.dayPeriod}`;
 }
 
 /** 79794 → "79.8k"; 950 → "950". */

@@ -68,7 +68,11 @@ export function RowExpansion({
         ];
         for (const t of r.trades) {
           if (t.result === null) continue;
-          const h = new Date(t.ts * 1000).getUTCHours();
+          const h = Number(
+            new Intl.DateTimeFormat('en-US', {
+              timeZone: 'America/New_York', hour: 'numeric', hour12: false,
+            }).format(new Date(t.ts * 1000)),
+          ) % 24;
           const b = blocks[Math.floor(h / 6)];
           b.n++;
           if (t.pnl_net >= 0) b.wins += t.pnl_net;
@@ -129,7 +133,7 @@ export function RowExpansion({
       </div>
 
       <div>
-        <div className="text-[8px] tracking-[0.12em] text-faint mb-1.5">TIME OF DAY (UTC)</div>
+        <div className="text-[8px] tracking-[0.12em] text-faint mb-1.5">TIME OF DAY (ET)</div>
         <div className="grid grid-cols-[70px_50px_44px] gap-1.5 text-[9px]">
           <span className="text-faint text-[8px]">BLOCK</span>
           <span className="text-faint text-[8px] text-right">PF</span>
