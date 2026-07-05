@@ -27,6 +27,8 @@ import uuid
 from dataclasses import dataclass
 
 from kalshibot.config import Mode
+from kalshibot.decision.claude_cli import ClaudeCLIRunner
+from kalshibot.decision.engine import DecisionEngine, TradeDecision
 from kalshibot.features.engine import FeatureSnapshot, Regime
 from kalshibot.kalshi.models import OrderIntent
 from kalshibot.observer import Observer
@@ -35,7 +37,7 @@ from kalshibot.persistence.db import dump_json
 from kalshibot.sim.fills import TapeTrade, settle_position, simulate_maker, simulate_taker
 from kalshibot.smartmoney import signal as sm_signal
 from kalshibot.smartmoney.polymarket import PolymarketClient, live_lean
-from kalshibot.strategies.base import PositionState, Strategy
+from kalshibot.strategies.base import PositionState, Strategy, StrategySignal
 from kalshibot.strategies.library import build_strategy
 
 logger = logging.getLogger(__name__)
@@ -91,23 +93,44 @@ class ShadowTrader(Observer):
         self._pm_client = PolymarketClient()
         self._session_start = time.time()
 
+        self.ai_assets: set[str] = set()
+        self.decision_engine: DecisionEngine | None = None
+        self._ai_pending: set[str] = set()  # markets with a decision in flight
+        self._ai_tasks: set[asyncio.Task] = set()
+
         for asset, cfg in self.asset_configs.items():
             self.risk.paused_assets.discard(asset)
             if cfg.paused:
                 self.risk.paused_assets.add(asset)
             if cfg.strategy:
                 self.strategies[asset] = build_strategy(cfg.strategy, cfg.strategy_params)
+            if getattr(cfg, "ai_enabled", False):
+                self.ai_assets.add(asset)
 
     # ------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
+        if self.ai_assets:
+            runner = ClaudeCLIRunner()
+            ok, detail = await runner.health_check()
+            if ok:
+                self.decision_engine = DecisionEngine(runner, self.db)
+                logger.info("AI mode on for %s (claude CLI: %s)",
+                            sorted(self.ai_assets), detail)
+            else:
+                logger.error("AI mode REFUSED, falling back to baseline: %s", detail)
+                self.ai_assets = set()
+
         for asset, strategy in self.strategies.items():
             run_id = f"shadow-{asset}-{uuid.uuid4().hex[:8]}"
             self.run_ids[asset] = run_id
+            strategy_label = strategy.params_key() + (
+                "+ai" if asset in self.ai_assets else ""
+            )
             self.db.write_now("sim_runs", {
                 "run_id": run_id, "created_ts": self._session_start,
                 "kind": "shadow", "asset": asset,
-                "strategy": strategy.params_key(),
+                "strategy": strategy_label,
                 "params": dump_json(strategy.params),
                 "latency_ms": None, "seed": None,
                 "tape_start": self._session_start, "tape_end": None,
@@ -195,10 +218,26 @@ class ShadowTrader(Observer):
             return
         signal.contracts = verdict.contracts
 
+        if asset in self.ai_assets and self.decision_engine is not None:
+            if snap.market_ticker in self._ai_pending:
+                return
+            self._ai_pending.add(snap.market_ticker)
+            task = asyncio.create_task(self._ai_flow(asset, snap, signal, strategy))
+            self._ai_tasks.add(task)
+            task.add_done_callback(lambda t: (
+                self._ai_tasks.discard(t),
+                self._ai_pending.discard(snap.market_ticker),
+            ))
+            return
+
+        self._execute(asset, snap, signal, strategy.params_key())
+
+    def _execute(self, asset: str, snap: FeatureSnapshot,
+                 signal: StrategySignal, strategy_key: str) -> None:
         if signal.execution == "maker":
             self.resting[snap.market_ticker] = RestingMaker(
                 asset=asset, market_ticker=snap.market_ticker,
-                strategy_key=strategy.params_key(), intent=signal.intent,
+                strategy_key=strategy_key, intent=signal.intent,
                 price=signal.limit_price, contracts=signal.contracts,
                 placed_ts=snap.ts, last_checked_ts=snap.ts,
             )
@@ -208,7 +247,7 @@ class ShadowTrader(Observer):
                         signal.reason)
             return
 
-        book = recorder.latest_book
+        book = self.recorders[asset].latest_book
         if book is None:
             return
         fill = simulate_taker(signal.intent, signal.limit_price, signal.contracts, book)
@@ -218,9 +257,75 @@ class ShadowTrader(Observer):
             return
         status = "filled" if fill.filled >= signal.contracts else "partial"
         self._record_order(asset, snap, signal, "taker", status, fill.filled)
-        self._open_position(asset, snap, strategy.params_key(), signal.intent,
+        self._open_position(asset, snap, strategy_key, signal.intent,
                             fill.filled, fill.avg_price or 0.0, fill.total_fee,
                             "taker", signal.reason)
+
+    async def _ai_flow(self, asset: str, snap: FeatureSnapshot,
+                       signal: StrategySignal, strategy: Strategy) -> None:
+        """Async decision path: never blocks the scan loop.
+
+        The risk layer already approved `signal` (that's what made it a
+        qualifying dispatch), but time passes while Claude thinks, so the
+        final order re-checks risk against fresh clock/positions and
+        re-quotes against the live book (limit semantics: if the book moved
+        past the limit, the fill comes back empty and is recorded as missed).
+        """
+        assert self.decision_engine is not None
+        strategy_key = strategy.params_key() + "+ai"
+        sm = self.smart.get(asset, sm_signal.SmartMoneySignal.neutral())
+        decision, disposition = await self.decision_engine.decide(
+            asset, snap, signal, sm, self._position_state(snap.market_ticker),
+            self.risk.daily_pnl.get(asset, 0.0),
+            {
+                "daily_pnl_asset": round(self.risk.daily_pnl.get(asset, 0.0), 2),
+                "daily_pnl_global": round(self.risk.global_daily_pnl, 2),
+                "max_daily_loss_per_asset": self.risk.config.max_daily_loss_per_asset_usd,
+            },
+        )
+        if disposition == "hold":
+            return
+        final_signal = signal
+        if disposition == "claude" and decision is not None:
+            if decision.action == "HOLD":
+                logger.info("%s: claude HOLD (%s)", asset, decision.reasoning[:80])
+                return
+            if decision.action == "SELL":
+                logger.info("%s: claude SELL unsupported in v1, holding", asset)
+                return
+            final_signal = StrategySignal(
+                intent=OrderIntent(decision.action),
+                contracts=min(decision.size_contracts or signal.contracts,
+                              signal.contracts),  # advisory: can downsize only
+                limit_price=(decision.limit_price_cents / 100
+                             if decision.limit_price_cents else signal.limit_price),
+                execution="taker",
+                reason=f"claude({decision.confidence:.2f}): {decision.reasoning[:120]}",
+            )
+
+        # fresh risk re-check: recompute time state, positions may have changed
+        market = self.recorders[asset].current_market
+        if market is None or market.ticker != snap.market_ticker:
+            return  # window rolled while deciding
+        seconds_remaining = (
+            max(0.0, market.close_time.timestamp() - time.time())
+            if market.close_time else 0.0
+        )
+        from kalshibot.features.engine import regime_for
+        fresh = snap.model_copy(update={
+            "seconds_remaining": seconds_remaining,
+            "regime": regime_for(seconds_remaining),
+        })
+        position = self._position_state(snap.market_ticker)
+        verdict = self.risk.check(
+            asset, final_signal, fresh, position,
+            resting_depth_at_price=self._opposing_depth(fresh, final_signal),
+        )
+        if not verdict.approved:
+            logger.info("%s: post-decision risk veto: %s", asset, verdict.reason)
+            return
+        final_signal.contracts = verdict.contracts
+        self._execute(asset, fresh, final_signal, strategy_key)
 
     def _record_order(self, asset, snap, signal, execution, status, filled) -> None:
         self.db.write_now("sim_orders", {

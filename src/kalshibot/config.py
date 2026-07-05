@@ -55,6 +55,7 @@ class AssetConfig(BaseModel):
     strategy_params: dict[str, Any] = {}
     smart_money_weight: float = 0.0
     late_window_enabled: bool = False
+    ai_enabled: bool = False  # per-asset Claude decision layer (A/B vs baseline)
 
 
 def load_asset_configs(path: Path | None = None) -> dict[str, AssetConfig]:

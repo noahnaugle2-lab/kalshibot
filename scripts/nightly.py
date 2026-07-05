@@ -38,10 +38,10 @@ async def main() -> None:
     lines: list[str] = [f"KalshiBot nightly — {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}", ""]
 
     reports = run_calibration(db, TARGET_ASSETS)
-    lines.append(f"[1/4] calibration: {len(reports)} assets scored")
+    lines.append(f"[1/5] calibration: {len(reports)} assets scored")
 
     new_flow = mine_new_windows(db)
-    lines.append(f"[2/4] flow mining: {new_flow} new pattern outcomes")
+    lines.append(f"[2/5] flow mining: {new_flow} new pattern outcomes")
 
     client = PolymarketClient()
     try:
@@ -55,15 +55,28 @@ async def main() -> None:
         qualified = db.query(
             "SELECT COUNT(*) AS c FROM smart_wallets WHERE qualified = 1"
         )[0]["c"]
-        lines.append(f"[3/4] polymarket: {total_rows} wallet rows, {qualified} qualified winners")
+        lines.append(f"[3/5] polymarket: {total_rows} wallet rows, {qualified} qualified winners")
     finally:
         await client.close()
 
     cards = build_scorecards(db, kind="shadow")
     persist_scorecards(db, cards)
-    lines.append(f"[4/4] scorecards: {len(cards)} (asset, strategy) pairs ranked")
+    lines.append(f"[4/5] scorecards: {len(cards)} (asset, strategy) pairs ranked")
     lines.append("")
-    lines.append(render_ranking(cards))
+    ranking = render_ranking(cards)
+    lines.append(ranking)
+
+    if "--no-ai" in sys.argv:
+        lines.append("\n[5/5] Claude analysis skipped (--no-ai)")
+    else:
+        from kalshibot.config import load_asset_configs
+        from kalshibot.decision.proposals import run_nightly_analysis
+
+        analysis, n_proposals = await run_nightly_analysis(
+            db, ranking, load_asset_configs()
+        )
+        lines.append(f"\n[5/5] Claude analysis ({n_proposals} replay-validated "
+                     f"proposals written for review):\n{analysis}")
 
     text = "\n".join(lines)
     print(text)

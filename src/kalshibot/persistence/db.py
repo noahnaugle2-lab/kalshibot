@@ -245,6 +245,38 @@ CREATE TABLE IF NOT EXISTS wallet_window_results (
 );
 CREATE INDEX IF NOT EXISTS idx_wwr_wallet ON wallet_window_results(wallet);
 
+CREATE TABLE IF NOT EXISTS decisions (
+    id INTEGER PRIMARY KEY,
+    ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    prompt_version INTEGER NOT NULL,
+    prompt TEXT NOT NULL,
+    raw_stdout TEXT,
+    parsed TEXT,                  -- JSON TradeDecision or NULL
+    latency_ms REAL,
+    snapshot_age_s REAL,
+    disposition TEXT NOT NULL,    -- claude | fallback | fallback_hold | stale_discard
+    error TEXT,
+    cost_usd REAL
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_asset_ts ON decisions(asset, ts);
+
+CREATE TABLE IF NOT EXISTS proposals (
+    id INTEGER PRIMARY KEY,
+    created_ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    current_params TEXT NOT NULL,   -- JSON
+    proposed_params TEXT NOT NULL,  -- JSON
+    rationale TEXT,
+    replay_run_id TEXT,             -- replay validation is mandatory
+    replay_summary TEXT,            -- JSON ReplayResult
+    baseline_replay_run_id TEXT,
+    baseline_replay_summary TEXT,
+    status TEXT DEFAULT 'pending'   -- pending | approved | rejected (human only)
+);
+
 CREATE TABLE IF NOT EXISTS scorecards (
     id INTEGER PRIMARY KEY,
     run_ts REAL NOT NULL,
