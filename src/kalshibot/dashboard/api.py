@@ -252,7 +252,14 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
             "qualified": bool(r["qualified"]),
             "current_positions": [],  # populated when qualified wallets exist
         } for r in db.query(
-            "SELECT * FROM smart_wallets ORDER BY qualified DESC, ci_low DESC LIMIT 50")]
+            # union: statistically strongest AND biggest earners, so the
+            # top-by-profit widget sees the profit leaders too
+            "SELECT * FROM smart_wallets WHERE wallet IN ("
+            " SELECT wallet FROM (SELECT wallet FROM smart_wallets"
+            "  ORDER BY qualified DESC, ci_low DESC LIMIT 50)"
+            " UNION SELECT wallet FROM (SELECT wallet FROM smart_wallets"
+            "  ORDER BY pnl DESC LIMIT 10)"
+            ") ORDER BY qualified DESC, ci_low DESC")]
 
         merged = {
             asset: {"lean": sm.lean, "strength": sm.strength}

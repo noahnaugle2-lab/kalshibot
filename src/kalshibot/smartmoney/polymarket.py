@@ -51,7 +51,14 @@ SLUG_PREFIX = {a: a.lower() for a in
 
 
 def updown_slug(asset: str, close_ts: int) -> str:
-    return f"{SLUG_PREFIX[asset]}-updown-15m-{close_ts}"
+    """Slug for the window CLOSING at close_ts.
+
+    Measured from live trades (2026-07-05): the slug timestamp is the window
+    OPEN, not the close — a wallet's first trade on ...-15m-T arrived 7s
+    after T. Getting this wrong shifts every entry-timing number by +900s
+    and makes live polls hit the NEXT (empty) window.
+    """
+    return f"{SLUG_PREFIX[asset]}-updown-15m-{close_ts - WINDOW_SECONDS}"
 
 
 def wilson_interval(wins: int, n: int, z: float = WILSON_Z) -> tuple[float, float]:

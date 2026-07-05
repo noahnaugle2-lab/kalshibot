@@ -14,8 +14,9 @@ from kalshibot.smartmoney.polymarket import (
 T_OPEN = 1_783_000_000.0
 
 
-def test_updown_slug():
-    assert updown_slug("BTC", 1783200600) == "btc-updown-15m-1783200600"
+def test_updown_slug_uses_window_open():
+    # slug ts = window OPEN (verified from live trades); arg is the CLOSE
+    assert updown_slug("BTC", 1783201500) == "btc-updown-15m-1783200600"
 
 
 # ----------------------------------------------------------------- wilson
