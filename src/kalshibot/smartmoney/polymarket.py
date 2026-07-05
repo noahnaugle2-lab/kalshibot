@@ -278,10 +278,12 @@ async def scan_asset(
 
 def refresh_wallet_records(db: Database) -> int:
     """Rebuild smart_wallets aggregates from wallet_window_results."""
+    # qualification uses the minute-10 (causal) record — the only record the
+    # live poll can act on, and the one the walk-forward validation passed
     rows = db.query(
-        "SELECT wallet, COUNT(*) AS n, SUM(won) AS wins, SUM(pnl) AS pnl, "
+        "SELECT wallet, COUNT(*) AS n, SUM(won_600) AS wins, SUM(pnl) AS pnl, "
         "AVG(stake) AS avg_stake, AVG(entry_offset_s) AS avg_entry "
-        "FROM wallet_window_results GROUP BY wallet",
+        "FROM wallet_window_results WHERE lean_600 IS NOT NULL GROUP BY wallet",
     )
     now = time.time()
     qualified = 0

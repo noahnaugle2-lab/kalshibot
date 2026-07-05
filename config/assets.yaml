@@ -49,16 +49,19 @@ assets:
     spot_symbol_coinbase: BTC-USD
     strategy: latency_momentum
     strategy_params: {move_vol_mult: 3.0, edge_threshold: 0.02, contracts: 10}
+    smart_money_weight: 0.25   # enabled 2026-07-05 after causal walk-forward validation (75.9% vs 53.1% base)
   ETH:
     spot_symbol_binance: ETHUSDT
     spot_symbol_coinbase: ETH-USD
     strategy: latency_momentum
     strategy_params: {move_vol_mult: 3.0, edge_threshold: 0.02, contracts: 10}
+    smart_money_weight: 0.25   # enabled 2026-07-05 after causal walk-forward validation (75.9% vs 53.1% base)
   SOL:
     spot_symbol_binance: SOLUSDT
     spot_symbol_coinbase: SOL-USD
     strategy: cross_asset_lead_lag
     strategy_params: {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10}
+    smart_money_weight: 0.25   # enabled 2026-07-05 after causal walk-forward validation (75.9% vs 53.1% base)
   ZEC:
     spot_symbol_binance: ZECUSDT
     spot_symbol_coinbase: ZEC-USD

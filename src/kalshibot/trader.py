@@ -273,8 +273,11 @@ class ShadowTrader(Observer):
             signal.intent, signal.contracts, sm, weight
         )
         if vetoed:
+            self._record_order(asset, snap, signal, "taker", "smart_veto", 0.0)
             logger.info("%s: %s", asset, note)
             return
+        if contracts != signal.contracts:
+            signal.reason += f" | {note}"
         signal.contracts = contracts
 
         # deterministic risk layer — final authority

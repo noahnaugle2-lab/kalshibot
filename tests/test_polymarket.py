@@ -95,6 +95,7 @@ def test_refresh_wallet_records_qualification(tmp_path):
                 "condition_id": f"{wallet}-{i}",
                 "close_ts": 1000 + i, "lean": "UP", "won": int(i < wins),
                 "pnl": pnl_each, "stake": 10.0, "entry_offset_s": 100.0,
+                "lean_600": "UP", "won_600": int(i < wins),
                 "computed_ts": 1.0,
             })
 
