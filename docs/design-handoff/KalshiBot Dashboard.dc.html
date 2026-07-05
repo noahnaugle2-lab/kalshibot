@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #090A0E; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #232838; border-radius: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    @keyframes flashpulse { 0% { opacity: 1; } 50% { opacity: 0.55; } 100% { opacity: 1; } }
+    body.light { filter: invert(0.94) hue-rotate(180deg); background: #10121A; }
+    body.light img, body.light video { filter: invert(1) hue-rotate(180deg); }
+  </style>
+</helmet>
+
+<div style="min-height: 100vh; background: #090A0E; font-family: 'JetBrains Mono', monospace; color: #E4E9F2; padding-bottom: 60px;">
+
+  <!-- ===== HEADER ===== -->
+  <div style="position: sticky; top: 0; z-index: 50; background: #0B0D13; border-bottom: 1px solid #1D2130;">
+    <div style="display: flex; align-items: center; gap: 20px; padding: 0 20px; height: 52px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 14px; font-weight: 800; letter-spacing: 0.06em;">KALSHIBOT</span>
+        <span style="background: #14172B; border: 1px solid #5B67F1; color: #A9B2FF; font-size: 9px; font-weight: 700; letter-spacing: 0.12em; padding: 2px 8px; border-radius: 3px;">SHADOW</span>
+      </div>
+      <div style="display: flex; gap: 2px; flex: 1;">
+        <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+          <span onClick="{{ t.go }}" style="font-size: 10px; font-weight: 700; letter-spacing: 0.1em; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: {{ t.color }}; background: {{ t.bg }};" style-hover="color: #E4E9F2;">{{ t.label }}</span>
+        </sc-for>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <span style="display: flex; align-items: center; gap: 10px; font-size: 10px; font-variant-numeric: tabular-nums; background: #11131C; border: 1px solid #1D2130; border-radius: 4px; padding: 4px 10px;">
+          <span style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 8px; letter-spacing: 0.1em; color: #5C6675;">24H</span>
+            <span style="font-weight: 800; color: {{ pnl24hCol }};">{{ pnl24h }}</span>
+          </span>
+          <span style="width: 1px; height: 12px; background: #232838;"></span>
+          <span style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 8px; letter-spacing: 0.1em; color: #5C6675;">SINCE START</span>
+            <span style="font-weight: 800; color: {{ pnlTotalCol }};">{{ pnlTotal }}</span>
+          </span>
+          <span style="font-size: 8px; color: #464F60;">NET</span>
+        </span>
+        <span onClick="{{ toggleWs }}" title="click to simulate a WS drop" style="display: flex; align-items: center; gap: 6px; font-size: 9px; letter-spacing: 0.08em; color: {{ wsCol }}; cursor: pointer;">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: {{ wsDot }}; display: inline-block;"></span>
+          {{ wsLabel }}
+        </span>
+        <span onClick="{{ toggleTheme }}" style="font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 4px 9px; border: 1px solid #232838; border-radius: 4px; cursor: pointer; color: #8B94A3;" style-hover="color: #E4E9F2;">{{ themeLabel }}</span>
+        <div style="display: flex; border: 1px solid #232838; border-radius: 4px; overflow: hidden;">
+          <span onClick="{{ setDay1 }}" style="font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 4px 9px; cursor: pointer; color: {{ day1Col }}; background: {{ day1Bg }};">DAY 1</span>
+          <span onClick="{{ setDay9 }}" style="font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 4px 9px; cursor: pointer; color: {{ day9Col }}; background: {{ day9Bg }};">DAY 9</span>
+        </div>
+        <sc-if value="{{ killEngaged }}" hint-placeholder-val="{{ false }}">
+          <span onClick="{{ disengageKill }}" style="background: #33141A; border: 1px solid #F0525F; color: #F0525F; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; padding: 6px 14px; border-radius: 4px; cursor: pointer;">DISENGAGE</span>
+        </sc-if>
+        <sc-if value="{{ killNotEngaged }}" hint-placeholder-val="{{ true }}">
+          <span onClick="{{ openKill }}" style="background: #1A0D10; border: 1px solid #6E2530; color: #F0525F; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; padding: 6px 14px; border-radius: 4px; cursor: pointer;" style-hover="border-color: #F0525F; background: #33141A;">KILL</span>
+        </sc-if>
+      </div>
+    </div>
+    <div style="background: #14172B; border-top: 1px solid #232848; color: #A9B2FF; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; padding: 5px 20px; display: flex; align-items: center; gap: 10px;">
+      <span style="width: 6px; height: 6px; background: #5B67F1; border-radius: 1px; display: inline-block;"></span>
+      SHADOW MODE — SIMULATED FILLS · NO REAL ORDERS
+    </div>
+    <sc-if value="{{ killEngaged }}" hint-placeholder-val="{{ false }}">
+      <div style="background: #2A0E14; border-top: 1px solid #F0525F; color: #F0868F; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; padding: 6px 20px;">
+        ⛔ KILL SWITCH ENGAGED — 3 RESTING ORDERS CANCELLED · ALL TRADING LOOPS HALTED
+      </div>
+    </sc-if>
+    <sc-if value="{{ wsDown }}" hint-placeholder-val="{{ false }}">
+      <div style="background: #2A2210; border-top: 1px solid #E0A93E; color: #E0A93E; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; padding: 6px 20px; display: flex; align-items: center; gap: 8px; animation: flashpulse 2s infinite;">
+        ⚠ WEBSOCKET DISCONNECTED — RECONNECTING IN {{ reconnectIn }}S · LAST DATA {{ globalStale }}S OLD · NOTHING BELOW IS LIVE
+      </div>
+    </sc-if>
+  </div>
+
+  <!-- ===== LIVE GRID ===== -->
+  <sc-if value="{{ isLive }}" hint-placeholder-val="{{ true }}">
+    <div style="padding: 18px 20px; max-width: 1440px; margin: 0 auto;">
+      <div style="display: flex; align-items: baseline; gap: 16px; margin-bottom: 6px;">
+        <span style="font-size: 13px; font-weight: 800; letter-spacing: 0.06em;">LIVE MARKETS</span>
+      </div>
+      <div style="font-size: 10px; color: #8B94A3; line-height: 1.6; max-width: 860px; margin-bottom: 14px;">All nine 15-minute markets in real time. Each card compares the market's implied probability (book mid) against the bot's model — when the net-of-fees gap clears that asset's edge threshold, the card lights up and the bot trades it (simulated in shadow). Snapshots refresh ~every 2s; data older than 5s is flagged stale. Click a card for the full feature snapshot.</div>
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+        <span style="font-size: 10px; letter-spacing: 0.12em; color: #5C6675;">SORT</span>
+        <sc-for list="{{ sortBtns }}" as="b" hint-placeholder-count="3">
+          <span onClick="{{ b.go }}" style="font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 4px 10px; border-radius: 4px; cursor: pointer; border: 1px solid {{ b.border }}; color: {{ b.color }}; background: {{ b.bg }};">{{ b.label }}</span>
+        </sc-for>
+        <span style="flex: 1;"></span>
+        <span style="font-size: 9px; color: #5C6675; letter-spacing: 0.06em;">window rolls every 15:00 · snapshots ~2s</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;">
+        <sc-for list="{{ cards }}" as="a" hint-placeholder-count="9">
+          <div onClick="{{ a.open }}" style="background: #0D0F15; border: 1px solid {{ a.borderCol }}; border-radius: 6px; overflow: hidden; cursor: pointer; opacity: {{ a.opacity }}; box-shadow: {{ a.shadow }};" style-hover="border-color: #2E3550;">
+            <div style="display: flex; align-items: center; gap: 8px; padding: 11px 13px 7px;">
+              <span style="width: 8px; height: 8px; border-radius: 2px; background: {{ a.color }}; display: inline-block;"></span>
+              <span style="font-size: 15px; font-weight: 800;">{{ a.sym }}</span>
+              <span style="font-size: 8px; font-weight: 700; letter-spacing: 0.1em; padding: 2px 7px; border-radius: 3px; background: {{ a.regBg }}; color: {{ a.regFg }};">{{ a.regime }}</span>
+              <sc-if value="{{ a.paused }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size: 8px; font-weight: 700; letter-spacing: 0.1em; padding: 2px 7px; border-radius: 3px; background: #1B1D28; color: #8B94A3; border: 1px solid #2A2E42;">PAUSED</span>
+              </sc-if>
+              <sc-if value="{{ a.stale }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size: 8px; font-weight: 700; letter-spacing: 0.1em; padding: 2px 7px; border-radius: 3px; background: #2A2210; color: #E0A93E;">STALE {{ a.staleAge }}</span>
+              </sc-if>
+              <sc-if value="{{ a.halted }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size: 8px; font-weight: 700; letter-spacing: 0.1em; padding: 2px 7px; border-radius: 3px; background: #33141A; color: #F0525F;">HALTED</span>
+              </sc-if>
+              <span style="flex: 1;"></span>
+              <span style="font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; color: {{ a.cdCol }};">{{ a.cd }}</span>
+            </div>
+            <div style="padding: 0 13px 4px; font-size: 8px; color: #464F60; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ a.ticker }}</div>
+            <div style="position: relative;">
+              <svg width="100%" height="48" viewBox="0 0 120 32" preserveAspectRatio="none" style="display: block;">
+                <line x1="0" x2="120" y1="{{ a.strikeY }}" y2="{{ a.strikeY }}" stroke="#3A4354" stroke-width="0.5" stroke-dasharray="2 2"></line>
+                <polyline points="{{ a.spark }}" fill="none" stroke="{{ a.color }}" stroke-width="1" opacity="0.85"></polyline>
+              </svg>
+              <div style="position: absolute; top: 2px; left: 13px; font-size: 10px; font-variant-numeric: tabular-nums;"><span style="color: {{ a.spotCol }}; transition: color 0.25s;">{{ a.spot }}</span> <span style="color: {{ a.distCol }};">{{ a.arr }}{{ a.dist }}</span> <span style="color: #464F60;">vs {{ a.strikeFmt }}</span></div>
+            </div>
+            <div style="padding: 9px 13px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #171A26;">
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 9px;">
+                <span style="color: #5C6675; width: 46px; letter-spacing: 0.08em;">MARKET</span>
+                <div style="flex: 1; height: 11px; background: #151827; border-radius: 3px;"><div style="width: {{ a.impW }}%; height: 100%; background: #5B67F1; border-radius: 3px;"></div></div>
+                <span style="font-variant-numeric: tabular-nums; width: 40px; text-align: right; font-size: 11px; font-weight: 700;">{{ a.impFmt }}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 9px;">
+                <span style="color: #5C6675; width: 46px; letter-spacing: 0.08em;">MODEL</span>
+                <div style="flex: 1; height: 11px; background: #151827; border-radius: 3px;"><div style="width: {{ a.modW }}%; height: 100%; background: #454B66; border-radius: 3px;"></div></div>
+                <span style="font-variant-numeric: tabular-nums; width: 40px; text-align: right; font-size: 11px; font-weight: 700;">{{ a.modFmt }}</span>
+              </div>
+              <div style="font-size: 9px; font-variant-numeric: tabular-nums; color: {{ a.edgeCol }};">{{ a.edgeText }}</div>
+            </div>
+            <div style="padding: 7px 13px; border-top: 1px solid #171A26; display: flex; gap: 12px; font-size: 9px; font-variant-numeric: tabular-nums; color: #8B94A3;">
+              <span>YES <span style="color: #C7CEDC;">{{ a.bookStr }}</span></span>
+              <span>SPR <span style="color: #C7CEDC;">{{ a.spread }}</span></span>
+              <span>DEPTH <span style="color: #C7CEDC;">{{ a.depth }}</span></span>
+              <span>BOOK <span style="color: #C7CEDC;">{{ a.bookAge }}</span></span>
+            </div>
+            <sc-if value="{{ a.hasPos }}" hint-placeholder-val="{{ false }}">
+              <div style="padding: 7px 13px; border-top: 1px solid #171A26; display: flex; justify-content: space-between; font-size: 9px; font-variant-numeric: tabular-nums;">
+                <span style="color: #8B94A3;">POS <span style="color: {{ a.posCol }}; font-weight: 700;">{{ a.posStr }}</span></span>
+                <span style="color: {{ a.uPnlCol }};">uPnL {{ a.uPnl }}</span>
+              </div>
+            </sc-if>
+            <div style="padding: 7px 13px; border-top: 1px solid #171A26; display: flex; justify-content: space-between; align-items: center; font-size: 10px; font-variant-numeric: tabular-nums;">
+              <span style="color: {{ a.smCol }};">{{ a.smText }} <span style="color: #464F60; font-size: 8px; letter-spacing: 0.08em;">SMART $</span></span>
+              <span style="color: {{ a.pnlCol }};">{{ a.pnl }} <span style="color: #464F60;">net · {{ a.nTrades }}t</span></span>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== LEADERBOARD ===== -->
+  <sc-if value="{{ isLb }}" hint-placeholder-val="{{ false }}">
+    <div style="padding: 18px 20px; max-width: 1440px; margin: 0 auto;">
+      <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 14px; flex-wrap: wrap;">
+        <span style="font-size: 13px; font-weight: 800; letter-spacing: 0.06em;">LEADERBOARD</span>
+        <span style="flex: 1;"></span>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 9px; letter-spacing: 0.1em; color: #5C6675;">BASIS</span>
+          <sc-for list="{{ basisBtns }}" as="b" hint-placeholder-count="2">
+            <span onClick="{{ b.go }}" style="font-size: 9px; font-weight: 700; padding: 4px 10px; border-radius: 4px; cursor: pointer; border: 1px solid {{ b.border }}; color: {{ b.color }}; background: {{ b.bg }};">{{ b.label }}</span>
+          </sc-for>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 9px; letter-spacing: 0.1em; color: #5C6675;">SMART $</span>
+          <sc-for list="{{ smBtns }}" as="b" hint-placeholder-count="3">
+            <span onClick="{{ b.go }}" style="font-size: 9px; font-weight: 700; padding: 4px 10px; border-radius: 4px; cursor: pointer; border: 1px solid {{ b.border }}; color: {{ b.color }}; background: {{ b.bg }};">{{ b.label }}</span>
+          </sc-for>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 9px; letter-spacing: 0.1em; color: #5C6675;">REGIME</span>
+          <sc-for list="{{ regimeBtns }}" as="b" hint-placeholder-count="4">
+            <span onClick="{{ b.go }}" style="font-size: 9px; font-weight: 700; padding: 4px 10px; border-radius: 4px; cursor: pointer; border: 1px solid {{ b.border }}; color: {{ b.color }}; background: {{ b.bg }};">{{ b.label }}</span>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="font-size: 10px; color: #8B94A3; line-height: 1.6; max-width: 860px; margin: -6px 0 14px;">The money screen: nine markets ranked head-to-head by profitability and predictability across the shadow campaign. Sample sizes are always shown — a lucky small sample never outranks proven edge. Click any row for per-regime and time-of-day breakdowns and its equity curve.</div>
+
+      <sc-if value="{{ lbEmpty }}" hint-placeholder-val="{{ false }}">
+        <div style="border: 1px dashed #2A2E42; border-radius: 6px; padding: 60px 20px; text-align: center;">
+          <div style="font-size: 13px; font-weight: 700; color: #8B94A3; margin-bottom: 8px;">CAMPAIGN DAY 1</div>
+          <div style="font-size: 10px; color: #5C6675;">metrics appear after the first settled windows — first 15-minute settlement expected within the hour</div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ lbHasData }}" hint-placeholder-val="{{ true }}">
+        <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 6px; overflow-x: auto;">
+          <div style="min-width: 1240px;">
+            <div style="display: grid; grid-template-columns: 60px 52px minmax(140px,1fr) 56px 56px 56px 48px 48px 78px 48px 46px 50px 56px 66px 78px; gap: 8px; padding: 9px 14px; color: #5C6675; letter-spacing: 0.1em; font-size: 8px; border-bottom: 1px solid #1D2130; align-items: center;">
+              <span># / CONF</span><span>ASSET</span><span>STRATEGY</span>
+              <span onClick="{{ sortPf }}" style="text-align: right; cursor: pointer; color: {{ sortPfCol }};">PF {{ sortPfArr }}</span>
+              <span onClick="{{ sortPl }}" style="text-align: right; cursor: pointer; color: {{ sortPlCol }};">P/L% {{ sortPlArr }}</span>
+              <span style="text-align: right;">¢/CT</span>
+              <span style="text-align: right;">ROC</span>
+              <span onClick="{{ sortHit }}" style="text-align: right; cursor: pointer; color: {{ sortHitCol }};">HIT {{ sortHitArr }}</span>
+              <span style="text-align: right;">BRIER M/MKT</span>
+              <span style="text-align: right;">SIG/D</span>
+              <span style="text-align: right;">FILL</span>
+              <span style="text-align: right;">SPRD</span>
+              <span style="text-align: right;">MAXDD</span>
+              <span onClick="{{ sortN }}" style="text-align: right; cursor: pointer; color: {{ sortNCol }};">N {{ sortNArr }}</span>
+              <span style="text-align: right;">REC</span>
+            </div>
+            <sc-for list="{{ lbRows }}" as="r" hint-placeholder-count="9">
+              <div>
+                <div onClick="{{ r.toggle }}" style="display: grid; grid-template-columns: 60px 52px minmax(140px,1fr) 56px 56px 56px 48px 48px 78px 48px 46px 50px 56px 66px 78px; gap: 8px; padding: 9px 14px; border-bottom: 1px solid #171A26; font-size: 10px; font-variant-numeric: tabular-nums; align-items: center; cursor: pointer; background: {{ r.rowBg }};" style-hover="background: #11131C;">
+                  <span style="display: flex; align-items: center; gap: 5px;"><span style="font-weight: 800; font-size: 12px;">{{ r.rank }}</span><span style="font-size: 7px; font-weight: 700; letter-spacing: 0.06em; padding: 1px 4px; border-radius: 2px; background: {{ r.confBg }}; color: {{ r.confFg }};">{{ r.conf }}</span></span>
+                  <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 7px; height: 7px; border-radius: 2px; background: {{ r.color }};"></span><span style="font-weight: 800;">{{ r.sym }}</span></span>
+                  <span style="color: #8B94A3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px;">{{ r.strategy }}</span>
+                  <span style="text-align: right; font-weight: 800; font-size: 13px;">{{ r.pf }}<sc-if value="{{ r.showDelta }}" hint-placeholder-val="{{ false }}"><span style="display: block; font-size: 8px; font-weight: 400; color: {{ r.deltaCol }};">{{ r.smDelta }} sm</span></sc-if></span>
+                  <span style="text-align: right;">{{ r.pl }}</span>
+                  <span style="text-align: right;">{{ r.npc }}</span>
+                  <span style="text-align: right;">{{ r.roc }}</span>
+                  <span style="text-align: right;">{{ r.hit }}</span>
+                  <span style="text-align: right;"><span style="color: {{ r.brierMCol }}; font-weight: 700; border-bottom: {{ r.brierMark }};">{{ r.brierM }}</span><span style="color: #5C6675;">/{{ r.brierMkt }}</span></span>
+                  <span style="text-align: right; color: #8B94A3;">{{ r.sigd }}</span>
+                  <span style="text-align: right; color: #8B94A3;">{{ r.fill }}</span>
+                  <span style="text-align: right; color: #8B94A3;">{{ r.sprd }}</span>
+                  <span style="text-align: right; color: #F0868F;">{{ r.dd }}</span>
+                  <span style="text-align: right;">{{ r.n }} <sc-if value="{{ r.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="background: {{ r.badgeBg }}; color: {{ r.badgeFg }}; padding: 1px 4px; border-radius: 2px; font-size: 7px; font-weight: 700;">{{ r.badge }}</span></sc-if></span>
+                  <span style="text-align: right;"><span style="background: {{ r.recBg }}; color: {{ r.recFg }}; padding: 2px 7px; border-radius: 3px; font-size: 8px; font-weight: 700; letter-spacing: 0.08em;">{{ r.rec }}</span></span>
+                </div>
+                <sc-if value="{{ r.open }}" hint-placeholder-val="{{ false }}">
+                  <div style="display: flex; gap: 24px; padding: 14px 20px; border-bottom: 1px solid #171A26; background: #0A0C12; align-items: flex-start;">
+                    <div>
+                      <div style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675; margin-bottom: 6px;">BY REGIME</div>
+                      <div style="display: grid; grid-template-columns: 70px 50px 50px 44px; gap: 6px; font-size: 9px; font-variant-numeric: tabular-nums;">
+                        <span style="color: #5C6675; font-size: 8px;">REGIME</span><span style="color: #5C6675; font-size: 8px; text-align: right;">PF</span><span style="color: #5C6675; font-size: 8px; text-align: right;">HIT</span><span style="color: #5C6675; font-size: 8px; text-align: right;">N</span>
+                        <sc-for list="{{ r.regimes }}" as="g" hint-placeholder-count="3">
+                          <span style="color: {{ g.col }};">{{ g.name }}</span><span style="text-align: right; font-weight: 700;">{{ g.pf }}</span><span style="text-align: right;">{{ g.hit }}</span><span style="text-align: right; color: #8B94A3;">{{ g.n }}</span>
+                        </sc-for>
+                      </div>
+                    </div>
+                    <div>
+                      <div style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675; margin-bottom: 6px;">TIME OF DAY (UTC)</div>
+                      <div style="display: grid; grid-template-columns: 70px 50px 44px; gap: 6px; font-size: 9px; font-variant-numeric: tabular-nums;">
+                        <span style="color: #5C6675; font-size: 8px;">BLOCK</span><span style="color: #5C6675; font-size: 8px; text-align: right;">PF</span><span style="color: #5C6675; font-size: 8px; text-align: right;">N</span>
+                        <sc-for list="{{ r.tod }}" as="g" hint-placeholder-count="4">
+                          <span style="color: #8B94A3;">{{ g.name }}</span><span style="text-align: right; font-weight: 700;">{{ g.pf }}</span><span style="text-align: right; color: #8B94A3;">{{ g.n }}</span>
+                        </sc-for>
+                      </div>
+                    </div>
+                    <div style="flex: 1;">
+                      <div style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675; margin-bottom: 6px;">EQUITY (NET, CAMPAIGN)</div>
+                      <svg width="100%" height="64" viewBox="0 0 200 40" preserveAspectRatio="none" style="display: block;">
+                        <line x1="0" x2="200" y1="{{ r.eqZero }}" y2="{{ r.eqZero }}" stroke="#2A2E42" stroke-width="0.5" stroke-dasharray="2 2"></line>
+                        <polyline points="{{ r.eqSpark }}" fill="none" stroke="{{ r.color }}" stroke-width="1"></polyline>
+                      </svg>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px; font-size: 9px;">
+                      <span style="color: #8B94A3;">streak <span style="color: #E4E9F2; font-weight: 700;">{{ r.streak }}L</span> · vol <span style="color: #E4E9F2; font-weight: 700;">{{ r.vol }}</span> · slip <span style="color: #E4E9F2; font-weight: 700;">{{ r.slip }}¢</span></span>
+                      <span onClick="{{ r.goHistory }}" style="color: #5B67F1; cursor: pointer; font-weight: 700; letter-spacing: 0.06em;">→ HISTORY · {{ r.sym }}</span>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="margin-top: 10px; font-size: 9px; color: #5C6675; display: flex; gap: 18px;">
+          <span><span style="color: #2FD180;">▐</span> brier model &lt; market = bot better calibrated than the market (exploitability signal)</span>
+          <span>n &lt; 30 <span style="background: #33141A; color: #F0525F; padding: 1px 4px; border-radius: 2px; font-size: 7px; font-weight: 700;">INSUFF</span> · 30–99 <span style="background: #2A2210; color: #E0A93E; padding: 1px 4px; border-radius: 2px; font-size: 7px; font-weight: 700;">LOW</span></span>
+          <span>computed {{ lbComputedAt }}</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 300px 1fr 1fr; gap: 14px; margin-top: 14px;">
+          <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+            <div style="font-size: 9px; font-weight: 800; letter-spacing: 0.12em; color: #8B94A3;">CAMPAIGN SUMMARY</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div><div style="font-size: 8px; letter-spacing: 0.1em; color: #5C6675; margin-bottom: 3px;">TOTAL NET PNL</div><div style="font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; color: {{ sumPnlCol }};">{{ sumPnl }}</div></div>
+              <div><div style="font-size: 8px; letter-spacing: 0.1em; color: #5C6675; margin-bottom: 3px;">TOTAL TRADES</div><div style="font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums;">{{ sumTrades }}</div></div>
+              <div><div style="font-size: 8px; letter-spacing: 0.1em; color: #5C6675; margin-bottom: 3px;">SETTLED WINDOWS</div><div style="font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums;">{{ sumWindows }}</div></div>
+              <div><div style="font-size: 8px; letter-spacing: 0.1em; color: #5C6675; margin-bottom: 3px;">AVG FILL RATE</div><div style="font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums;">{{ sumFill }}</div></div>
+            </div>
+            <div style="border-top: 1px solid #171A26; padding-top: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 10px; font-variant-numeric: tabular-nums;">
+              <div style="display: flex; justify-content: space-between;"><span style="color: #5C6675;">best market</span><span><span style="font-weight: 800;">{{ sumBest }}</span> <span style="color: #2FD180;">{{ sumBestPf }}</span></span></div>
+              <div style="display: flex; justify-content: space-between;"><span style="color: #5C6675;">worst market</span><span><span style="font-weight: 800;">{{ sumWorst }}</span> <span style="color: #F0525F;">{{ sumWorstPf }}</span></span></div>
+              <div style="display: flex; justify-content: space-between;"><span style="color: #5C6675;">campaign day</span><span style="font-weight: 800;">9 of 14</span></div>
+            </div>
+          </div>
+
+          <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <span style="font-size: 9px; font-weight: 800; letter-spacing: 0.12em; color: #8B94A3;">PROFIT FACTOR</span>
+              <span style="font-size: 8px; color: #5C6675;">┊ break-even 1.00</span>
+            </div>
+            <sc-for list="{{ lbPfBars }}" as="b" hint-placeholder-count="9">
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 9px; font-variant-numeric: tabular-nums;">
+                <span style="width: 36px; font-weight: 800; display: flex; align-items: center; gap: 4px;"><span style="width: 5px; height: 5px; border-radius: 1px; background: {{ b.color }};"></span>{{ b.sym }}</span>
+                <span style="flex: 1; position: relative; height: 9px; background: #151827; border-radius: 2px;">
+                  <span style="position: absolute; left: 0; top: 0; bottom: 0; width: {{ b.w }}%; background: {{ b.barCol }}; border-radius: 2px; opacity: 0.85;"></span>
+                  <span style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #3A4354;"></span>
+                </span>
+                <span style="width: 32px; text-align: right; font-weight: 700; color: {{ b.valCol }};">{{ b.pf }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <span style="font-size: 9px; font-weight: 800; letter-spacing: 0.12em; color: #8B94A3;">CALIBRATION · BRIER</span>
+              <span style="font-size: 8px; color: #5C6675;"><span style="color: #A9B2FF;">●</span> model <span style="color: #5C6675;">●</span> market · lower is better</span>
+            </div>
+            <sc-for list="{{ lbCal }}" as="c" hint-placeholder-count="9">
+              <div style="display: flex; align-items: center; gap: 8px; font-size: 9px; font-variant-numeric: tabular-nums;">
+                <span style="width: 36px; font-weight: 800;">{{ c.sym }}</span>
+                <span style="flex: 1; position: relative; height: 9px;">
+                  <span style="position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: #171A26;"></span>
+                  <span style="position: absolute; left: {{ c.connL }}%; width: {{ c.connW }}%; top: 3.5px; height: 2px; background: {{ c.connCol }}; opacity: 0.5;"></span>
+                  <span style="position: absolute; left: {{ c.kL }}%; top: 1px; width: 7px; height: 7px; border-radius: 50%; background: #5C6675;"></span>
+                  <span style="position: absolute; left: {{ c.mL }}%; top: 1px; width: 7px; height: 7px; border-radius: 50%; background: #A9B2FF;"></span>
+                </span>
+                <span style="width: 60px; text-align: right;"><span style="color: {{ c.mValCol }}; font-weight: 700;">{{ c.m }}</span><span style="color: #5C6675;">/{{ c.k }}</span></span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <!-- ===== SMART MONEY ===== -->
+  <sc-if value="{{ isSm }}" hint-placeholder-val="{{ false }}">
+    <div style="padding: 18px 20px; max-width: 1440px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 13px; font-weight: 800; letter-spacing: 0.06em;">SMART MONEY</span>
+      </div>
+      <div style="font-size: 10px; color: #8B94A3; line-height: 1.6; max-width: 860px; margin: -6px 0 2px;">Two independent signal layers — order-flow patterns on Kalshi (Layer A) and consistently profitable Polymarket wallets (Layer B) — merged into one directional lean per asset. Strategies weight this lean from 0 to 1 in Config; patterns that stop working get benched automatically.</div>
+
+      <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 6px; padding: 12px 14px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+        <span style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675; margin-right: 4px;">MERGED LEANS</span>
+        <sc-for list="{{ leanChips }}" as="c" hint-placeholder-count="9">
+          <span style="display: flex; align-items: center; gap: 6px; background: #11131C; border: 1px solid #1D2130; border-radius: 4px; padding: 5px 10px; font-size: 10px; font-variant-numeric: tabular-nums;">
+            <span style="width: 6px; height: 6px; border-radius: 2px; background: {{ c.color }};"></span>
+            <span style="font-weight: 800;">{{ c.sym }}</span>
+            <span style="color: {{ c.leanCol }}; font-weight: 700;">{{ c.lean }}</span>
+          </span>
+        </sc-for>
+      </div>
+
+      <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 6px; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #1D2130; font-size: 10px; font-weight: 800; letter-spacing: 0.1em;">LAYER A — FLOW PATTERNS</div>
+        <div style="display: grid; grid-template-columns: 170px 1fr 90px 60px 80px 200px; gap: 10px; padding: 8px 14px; color: #5C6675; letter-spacing: 0.1em; font-size: 8px; border-bottom: 1px solid #171A26;">
+          <span>PATTERN</span><span>DESCRIPTION</span><span style="text-align: right;">HIT 30D</span><span style="text-align: right;">N</span><span>STATUS</span><span>CURRENT LEANS</span>
+        </div>
+        <sc-for list="{{ patterns }}" as="p" hint-placeholder-count="4">
+          <div style="display: grid; grid-template-columns: 170px 1fr 90px 60px 80px 200px; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #171A26; font-size: 10px; font-variant-numeric: tabular-nums; align-items: center; opacity: {{ p.opacity }};">
+            <span style="font-weight: 700; font-size: 9px;">{{ p.id }}</span>
+            <span style="color: #8B94A3; font-size: 9px;">{{ p.desc }}</span>
+            <span style="text-align: right; font-weight: 800; font-size: 12px; color: {{ p.hitCol }};">{{ p.hit }}</span>
+            <span style="text-align: right; color: #8B94A3;">{{ p.n }} <sc-if value="{{ p.lowN }}" hint-placeholder-val="{{ false }}"><span style="background: #2A2210; color: #E0A93E; padding: 1px 4px; border-radius: 2px; font-size: 7px; font-weight: 700;">LOW</span></sc-if></span>
+            <span><span style="background: {{ p.stBg }}; color: {{ p.stFg }}; padding: 2px 7px; border-radius: 3px; font-size: 8px; font-weight: 700; letter-spacing: 0.08em;">{{ p.status }}</span></span>
+            <span style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <sc-for list="{{ p.leans }}" as="l" hint-placeholder-count="2">
+                <span style="font-size: 9px; color: {{ l.col }};">{{ l.txt }}</span>
+              </sc-for>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 6px; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #1D2130; font-size: 10px; font-weight: 800; letter-spacing: 0.1em;">LAYER B — POLYMARKET WALLETS</div>
+        <div style="display: grid; grid-template-columns: 150px 220px 70px 90px 110px 1fr; gap: 10px; padding: 8px 14px; color: #5C6675; letter-spacing: 0.1em; font-size: 8px; border-bottom: 1px solid #171A26;">
+          <span>WALLET</span><span>WIN RATE · 95% CI</span><span style="text-align: right;">N RES</span><span style="text-align: right;">PROFIT</span><span style="text-align: right;">TYP ENTRY</span><span>OPEN POSITIONS</span>
+        </div>
+        <sc-for list="{{ wallets }}" as="w" hint-placeholder-count="3">
+          <div style="display: grid; grid-template-columns: 150px 220px 70px 90px 110px 1fr; gap: 10px; padding: 11px 14px; border-bottom: 1px solid #171A26; font-size: 10px; font-variant-numeric: tabular-nums; align-items: center;">
+            <span onClick="{{ w.copy }}" style="font-size: 9px; color: #A9B2FF; cursor: pointer;" title="click to copy">{{ w.addr }} ⧉</span>
+            <span style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-weight: 800; font-size: 12px;">{{ w.wr }}</span>
+              <span style="flex: 1; position: relative; height: 6px; background: #151827; border-radius: 3px;">
+                <span style="position: absolute; left: {{ w.ciLeft }}%; width: {{ w.ciWidth }}%; top: 0; bottom: 0; background: #2E3550; border-radius: 3px;"></span>
+                <span style="position: absolute; left: {{ w.wrPos }}%; top: -2px; width: 2px; height: 10px; background: #5B67F1;"></span>
+              </span>
+              <span style="font-size: 8px; color: #5C6675;">{{ w.ci }}</span>
+            </span>
+            <span style="text-align: right; color: #8B94A3;">{{ w.n }}</span>
+            <span style="text-align: right; color: #2FD180; font-weight: 700;">{{ w.profit }}</span>
+            <span style="text-align: right; color: #8B94A3;">{{ w.entry }}</span>
+            <span style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <sc-for list="{{ w.positions }}" as="p" hint-placeholder-count="1">
+                <span style="background: #11131C; border: 1px solid #1D2130; border-radius: 3px; padding: 2px 8px; font-size: 9px;"><span style="font-weight: 800;">{{ p.asset }}</span> <span style="color: {{ p.col }}; font-weight: 700;">{{ p.side }}</span> <span style="color: #5C6675;">{{ p.size }}</span></span>
+              </sc-for>
+            </span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== HISTORY ===== -->
+  <sc-if value="{{ isHist }}" hint-placeholder-val="{{ false }}">
+    <div style="padding: 18px 20px; max-width: 1440px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 13px; font-weight: 800; letter-spacing: 0.06em;">HISTORY</span>
+        <span style="flex: 1;"></span>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 9px; letter-spacing: 0.1em; color: #5C6675;">RANGE</span>
+          <sc-for list="{{ histRangeBtns }}" as="b" hint-placeholder-count="3">
+            <span onClick="{{ b.go }}" style="font-size: 9px; font-weight: 700; padding: 4px 10px; border-radius: 4px; cursor: pointer; border: 1px solid {{ b.border }}; color: {{ b.color }}; background: {{ b.bg }};">{{ b.label }}</span>
+          </sc-for>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 9px; letter-spacing: 0.1em; color: #5C6675;">BASIS</span>
+          <sc-for list="{{ histBasisBtns }}" as="b" hint-placeholder-count="2">
+            <span onClick="{{ b.go }}" style="font-size: 9px; font-weight: 700; padding: 4px 10px; border-radius: 4px; cursor: pointer; border: 1px solid {{ b.border }}; color: {{ b.color }}; background: {{ b.bg }};">{{ b.label }}</span>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="font-size: 10px; color: #8B94A3; line-height: 1.6; max-width: 860px; margin: -6px 0 2px;">Every simulated fill of the campaign: cumulative PnL per asset (toggle lines via the legend) and the full trade log. Expand any Claude-decided trade to read its reasoning, confidence, and decision latency. Net figures include Kalshi fees; flip the basis to compare.</div>
+
+      <sc-if value="{{ histEmpty }}" hint-placeholder-val="{{ false }}">
+        <div style="border: 1px dashed #2A2E42; border-radius: 6px; padding: 60px 20px; text-align: center;">
+          <div style="font-size: 13px; font-weight: 700; color: #8B94A3; margin-bottom: 8px;">NO SETTLED TRADES YET</div>
+          <div style="font-size: 10px; color: #5C6675;">the equity curves and trade log fill in as windows settle — check back after the first quarter-hour</div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ histHasData }}" hint-placeholder-val="{{ true }}">
+        <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 6px; padding: 14px;">
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+            <sc-for list="{{ eqLegend }}" as="l" hint-placeholder-count="9">
+              <span onClick="{{ l.toggle }}" style="display: flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 700; padding: 3px 9px; border-radius: 4px; cursor: pointer; border: 1px solid #1D2130; opacity: {{ l.opacity }}; font-variant-numeric: tabular-nums;">
+                <span style="width: 7px; height: 7px; border-radius: 2px; background: {{ l.color }};"></span>{{ l.sym }} <span style="color: {{ l.pnlCol }};">{{ l.pnl }}</span>
+              </span>
+            </sc-for>
+          </div>
+          <svg width="100%" height="260" viewBox="0 0 800 240" preserveAspectRatio="none" style="display: block;">
+            <line x1="0" x2="800" y1="{{ eqZeroY }}" y2="{{ eqZeroY }}" stroke="#2A2E42" stroke-width="0.7" stroke-dasharray="3 3"></line>
+            <sc-for list="{{ eqSeries }}" as="s" hint-placeholder-count="9">
+              <polyline points="{{ s.pts }}" fill="none" stroke="{{ s.color }}" stroke-width="1.2" opacity="0.9"></polyline>
+            </sc-for>
+          </svg>
+          <div style="display: flex; justify-content: space-between; font-size: 8px; color: #464F60; margin-top: 4px;">
+            <sc-for list="{{ eqXLabels }}" as="x" hint-placeholder-count="4"><span>{{ x }}</span></sc-for>
+          </div>
+        </div>
+
+        <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 6px; overflow: hidden;">
+          <div style="padding: 10px 14px; border-bottom: 1px solid #1D2130; display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 10px; font-weight: 800; letter-spacing: 0.1em;">TRADE LOG</span>
+            <span style="flex: 1;"></span>
+            <span style="font-size: 9px; color: #5C6675; letter-spacing: 0.08em;">ASSET</span>
+            <select value="{{ histAsset }}" onChange="{{ setHistAsset }}" style="background: #11131C; border: 1px solid #232838; color: #C7CEDC; font-family: inherit; font-size: 9px; padding: 4px 8px; border-radius: 4px;">
+              <option value="ALL">ALL</option><option value="BTC">BTC</option><option value="ETH">ETH</option><option value="SOL">SOL</option><option value="ZEC">ZEC</option><option value="HYPE">HYPE</option><option value="XRP">XRP</option><option value="DOGE">DOGE</option><option value="BNB">BNB</option><option value="NEAR">NEAR</option>
+            </select>
+            <span style="font-size: 9px; color: #5C6675; letter-spacing: 0.08em;">SOURCE</span>
+            <select value="{{ histSource }}" onChange="{{ setHistSource }}" style="background: #11131C; border: 1px solid #232838; color: #C7CEDC; font-family: inherit; font-size: 9px; padding: 4px 8px; border-radius: 4px;">
+              <option value="ALL">ALL</option><option value="claude">CLAUDE</option><option value="baseline">BASELINE</option>
+            </select>
+          </div>
+          <div style="display: grid; grid-template-columns: 88px 46px 74px 40px 56px 50px 50px 66px minmax(120px,1fr) 60px 70px; gap: 8px; padding: 8px 14px; color: #5C6675; letter-spacing: 0.1em; font-size: 8px; border-bottom: 1px solid #171A26;">
+            <span>TIME</span><span>ASSET</span><span>INTENT</span><span style="text-align: right;">QTY</span><span style="text-align: right;">FILL</span><span style="text-align: right;">FEES</span><span>RESULT</span><span style="text-align: right;">NET PNL</span><span>STRATEGY</span><span>REGIME</span><span>SOURCE</span>
+          </div>
+          <sc-for list="{{ trades }}" as="t" hint-placeholder-count="12">
+            <div>
+              <div onClick="{{ t.toggle }}" style="display: grid; grid-template-columns: 88px 46px 74px 40px 56px 50px 50px 66px minmax(120px,1fr) 60px 70px; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #171A26; font-size: 9px; font-variant-numeric: tabular-nums; align-items: center; cursor: pointer;" style-hover="background: #11131C;">
+                <span style="color: #8B94A3;">{{ t.time }}</span>
+                <span style="font-weight: 800;">{{ t.asset }}</span>
+                <span style="color: {{ t.intentCol }}; font-weight: 700;">{{ t.intent }}</span>
+                <span style="text-align: right;">{{ t.qty }}</span>
+                <span style="text-align: right;">{{ t.fill }}</span>
+                <span style="text-align: right; color: #8B94A3;">{{ t.fees }}</span>
+                <span style="color: {{ t.resCol }}; font-weight: 700;">{{ t.result }}</span>
+                <span style="text-align: right; color: {{ t.pnlCol }}; font-weight: 700;">{{ t.pnl }}</span>
+                <span style="color: #5C6675; font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ t.strategy }}</span>
+                <span style="color: {{ t.regCol }}; font-size: 8px; font-weight: 700;">{{ t.regime }}</span>
+                <span><span style="background: {{ t.srcBg }}; color: {{ t.srcFg }}; padding: 1px 6px; border-radius: 3px; font-size: 8px; font-weight: 700;">{{ t.source }}</span></span>
+              </div>
+              <sc-if value="{{ t.open }}" hint-placeholder-val="{{ false }}">
+                <div style="padding: 12px 20px; border-bottom: 1px solid #171A26; background: #0A0C12; display: flex; gap: 28px; font-size: 9px;">
+                  <div style="max-width: 640px;">
+                    <div style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675; margin-bottom: 5px;">CLAUDE REASONING · confidence {{ t.conf }} · {{ t.latency }}</div>
+                    <div style="color: #A9B0C0; line-height: 1.6;">{{ t.reasoning }}</div>
+                  </div>
+                  <div>
+                    <div style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675; margin-bottom: 5px;">SMART $ AT ENTRY</div>
+                    <div style="color: {{ t.smCol }}; font-weight: 700; font-variant-numeric: tabular-nums;">{{ t.smState }}</div>
+                  </div>
+                  <div>
+                    <div style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675; margin-bottom: 5px;">MARKET</div>
+                    <div style="color: #8B94A3;">{{ t.ticker }}</div>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+          <div style="padding: 9px 14px; font-size: 9px; color: #5C6675; display: flex; justify-content: space-between;">
+            <span>{{ tradeCount }} trades shown · server-paginated (cursor)</span>
+            <span style="color: #5B67F1; cursor: pointer; font-weight: 700;">LOAD MORE →</span>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <!-- ===== CONFIG ===== -->
+  <sc-if value="{{ isCfg }}" hint-placeholder-val="{{ false }}">
+    <div style="padding: 18px 20px; max-width: 1440px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px;">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 13px; font-weight: 800; letter-spacing: 0.06em;">CONFIG</span>
+      </div>
+      <div style="font-size: 10px; color: #8B94A3; line-height: 1.6; max-width: 860px; margin: -6px 0 2px;">Per-asset strategy and risk controls — each card saves independently to the server with optimistic UI and rollback on error. Event blackouts halt trading around scheduled news for the assets listed. Trading mode (SHADOW / DEMO / LIVE) is read-only here; it changes only via server config.</div>
+
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;">
+        <sc-for list="{{ cfgCards }}" as="c" hint-placeholder-count="9">
+          <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 6px; padding: 14px; display: flex; flex-direction: column; gap: 11px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="width: 8px; height: 8px; border-radius: 2px; background: {{ c.color }};"></span>
+              <span style="font-size: 14px; font-weight: 800;">{{ c.sym }}</span>
+              <span style="flex: 1;"></span>
+              <span onClick="{{ c.togglePause }}" style="font-size: 8px; font-weight: 700; letter-spacing: 0.08em; padding: 3px 9px; border-radius: 3px; cursor: pointer; border: 1px solid {{ c.pauseBorder }}; color: {{ c.pauseCol }}; background: {{ c.pauseBg }};">{{ c.pauseLabel }}</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <span style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675;">STRATEGY</span>
+              <select value="{{ c.strategy }}" onChange="{{ c.setStrategy }}" style="background: #11131C; border: 1px solid #232838; color: #C7CEDC; font-family: inherit; font-size: 10px; padding: 6px 8px; border-radius: 4px; width: 100%;">
+                <option value="latency_momentum_v1">latency_momentum_v1</option>
+                <option value="mean_revert_v2">mean_revert_v2</option>
+                <option value="vol_breakout_v1">vol_breakout_v1</option>
+                <option value="baseline_hold">baseline_hold</option>
+              </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675;">EDGE THRESHOLD ¢</span>
+                <input type="number" min="1" max="20" value="{{ c.threshold }}" onChange="{{ c.setThreshold }}" style="background: #11131C; border: 1px solid #232838; color: #E4E9F2; font-family: inherit; font-size: 11px; padding: 5px 8px; border-radius: 4px; width: 100%; box-sizing: border-box;">
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675;">MAX POSITION</span>
+                <input type="number" min="1" max="1000" value="{{ c.maxPos }}" onChange="{{ c.setMaxPos }}" style="background: #11131C; border: 1px solid #232838; color: #E4E9F2; font-family: inherit; font-size: 11px; padding: 5px 8px; border-radius: 4px; width: 100%; box-sizing: border-box;">
+              </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <span style="display: flex; justify-content: space-between; font-size: 8px; letter-spacing: 0.12em; color: #5C6675;">SMART $ WEIGHT <span style="color: #A9B2FF; font-variant-numeric: tabular-nums;">{{ c.smWeight }}</span></span>
+              <input type="range" min="0" max="1" step="0.05" value="{{ c.smWeight }}" onChange="{{ c.setSmWeight }}" style="width: 100%; accent-color: #5B67F1;">
+            </div>
+            <div onClick="{{ c.save }}" style="text-align: center; background: #14172B; border: 1px solid #2E3550; color: #A9B2FF; font-size: 9px; font-weight: 800; letter-spacing: 0.1em; padding: 7px 0; border-radius: 4px; cursor: pointer;" style-hover="border-color: #5B67F1;">SAVE {{ c.sym }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 6px; overflow: hidden;">
+        <div style="padding: 10px 14px; border-bottom: 1px solid #1D2130; display: flex; align-items: center;">
+          <span style="font-size: 10px; font-weight: 800; letter-spacing: 0.1em;">EVENT BLACKOUTS</span>
+          <span style="flex: 1;"></span>
+          <span style="font-size: 9px; color: #5B67F1; font-weight: 700; cursor: pointer;">+ ADD ENTRY</span>
+        </div>
+        <sc-for list="{{ blackouts }}" as="b" hint-placeholder-count="3">
+          <div style="display: grid; grid-template-columns: 220px 200px 1fr 60px; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #171A26; font-size: 10px; align-items: center;">
+            <span style="font-weight: 700;">{{ b.label }}</span>
+            <span style="color: #8B94A3; font-variant-numeric: tabular-nums;">{{ b.when }}</span>
+            <span style="display: flex; gap: 5px; flex-wrap: wrap;">
+              <sc-for list="{{ b.assets }}" as="a" hint-placeholder-count="2">
+                <span style="background: #11131C; border: 1px solid #1D2130; border-radius: 3px; padding: 1px 7px; font-size: 8px; font-weight: 700;">{{ a }}</span>
+              </sc-for>
+            </span>
+            <span style="text-align: right; color: #5C6675; cursor: pointer; font-size: 9px;">EDIT</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== DETAIL DRAWER ===== -->
+  <sc-if value="{{ hasDrawer }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeDrawer }}" style="position: fixed; inset: 0; background: rgba(5,6,10,0.6); z-index: 90;"></div>
+    <div style="position: fixed; top: 0; right: 0; bottom: 0; width: 420px; background: #0C0E14; border-left: 1px solid #1D2130; z-index: 91; overflow-y: auto; padding: 18px;">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+        <span style="width: 9px; height: 9px; border-radius: 2px; background: {{ drawerColor }};"></span>
+        <span style="font-size: 18px; font-weight: 800;">{{ drawerSym }}</span>
+        <span style="font-size: 8px; font-weight: 700; letter-spacing: 0.1em; padding: 2px 8px; border-radius: 3px; background: {{ drawerRegBg }}; color: {{ drawerRegFg }};">{{ drawerRegime }}</span>
+        <span style="flex: 1;"></span>
+        <span onClick="{{ closeDrawer }}" style="color: #5C6675; cursor: pointer; font-size: 14px; padding: 4px;">✕</span>
+      </div>
+      <div style="font-size: 9px; color: #464F60; margin-bottom: 14px;">{{ drawerTicker }}</div>
+      <svg width="100%" height="80" viewBox="0 0 120 32" preserveAspectRatio="none" style="display: block; margin-bottom: 16px;">
+        <line x1="0" x2="120" y1="{{ drawerStrikeY }}" y2="{{ drawerStrikeY }}" stroke="#3A4354" stroke-width="0.5" stroke-dasharray="2 2"></line>
+        <polyline points="{{ drawerSpark }}" fill="none" stroke="{{ drawerColor }}" stroke-width="0.9"></polyline>
+      </svg>
+      <div style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675; margin-bottom: 8px;">FEATURE SNAPSHOT</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #171A26; border: 1px solid #171A26; border-radius: 6px; overflow: hidden; margin-bottom: 16px;">
+        <sc-for list="{{ drawerFields }}" as="f" hint-placeholder-count="16">
+          <div style="background: #0D0F15; padding: 7px 10px; display: flex; justify-content: space-between; gap: 8px;">
+            <span style="font-size: 8px; color: #5C6675;">{{ f.k }}</span>
+            <span style="font-size: 9px; font-variant-numeric: tabular-nums; color: {{ f.col }}; text-align: right;">{{ f.v }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675; margin-bottom: 8px;">TRADES · THIS WINDOW</div>
+      <sc-if value="{{ drawerNoTrades }}" hint-placeholder-val="{{ false }}">
+        <div style="border: 1px dashed #232838; border-radius: 6px; padding: 16px; text-align: center; font-size: 9px; color: #5C6675;">no fills in this window</div>
+      </sc-if>
+      <sc-for list="{{ drawerTrades }}" as="t" hint-placeholder-count="2">
+        <div style="display: flex; justify-content: space-between; padding: 8px 10px; border: 1px solid #171A26; border-radius: 5px; margin-bottom: 6px; font-size: 9px; font-variant-numeric: tabular-nums;">
+          <span style="color: #8B94A3;">{{ t.time }}</span>
+          <span style="color: {{ t.intentCol }}; font-weight: 700;">{{ t.intent }}</span>
+          <span>{{ t.qty }} @ {{ t.fill }}</span>
+          <span style="color: {{ t.pnlCol }}; font-weight: 700;">{{ t.pnl }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <!-- ===== KILL MODAL ===== -->
+  <sc-if value="{{ killModal }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeKill }}" style="position: fixed; inset: 0; background: rgba(5,6,10,0.7); z-index: 100;"></div>
+    <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 420px; background: #0D0F15; border: 1px solid #6E2530; border-radius: 8px; z-index: 101; padding: 22px;">
+      <div style="font-size: 13px; font-weight: 800; color: #F0525F; letter-spacing: 0.08em; margin-bottom: 10px;">ENGAGE KILL SWITCH</div>
+      <div style="font-size: 10px; color: #A9B0C0; line-height: 1.7; margin-bottom: 16px;">Cancels all resting orders and halts every trading loop across all nine assets. Mode is <span style="color: #A9B2FF; font-weight: 700;">SHADOW</span> — simulated orders only. In LIVE mode this action requires typing KILL to confirm.</div>
+      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <span onClick="{{ closeKill }}" style="font-size: 10px; font-weight: 700; padding: 8px 16px; border-radius: 4px; cursor: pointer; border: 1px solid #232838; color: #8B94A3;">CANCEL</span>
+        <span onClick="{{ confirmKill }}" style="font-size: 10px; font-weight: 800; letter-spacing: 0.08em; padding: 8px 16px; border-radius: 4px; cursor: pointer; background: #F0525F; color: #0B0D10;">ENGAGE — CANCEL 3 ORDERS</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== LOGIN (401) ===== -->
+  <sc-if value="{{ loggedOut }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; inset: 0; background: #090A0E; z-index: 300; display: flex; align-items: center; justify-content: center;">
+      <div style="width: 360px; display: flex; flex-direction: column; gap: 18px;">
+        <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
+          <span style="font-size: 18px; font-weight: 800; letter-spacing: 0.06em;">KALSHIBOT</span>
+          <span style="background: #14172B; border: 1px solid #5B67F1; color: #A9B2FF; font-size: 9px; font-weight: 700; letter-spacing: 0.12em; padding: 2px 8px; border-radius: 3px;">SHADOW</span>
+        </div>
+        <div style="background: #0D0F15; border: 1px solid #1D2130; border-radius: 8px; padding: 22px; display: flex; flex-direction: column; gap: 14px;">
+          <div style="font-size: 10px; color: #E0A93E; font-weight: 700; letter-spacing: 0.08em;">SESSION EXPIRED — API RETURNED 401</div>
+          <div style="display: flex; flex-direction: column; gap: 5px;">
+            <span style="font-size: 8px; letter-spacing: 0.12em; color: #5C6675;">DASHBOARD TOKEN</span>
+            <input type="password" placeholder="paste bearer token" style="background: #11131C; border: 1px solid #232838; color: #E4E9F2; font-family: inherit; font-size: 11px; padding: 9px 11px; border-radius: 4px; width: 100%; box-sizing: border-box; outline: none;" style-focus="border-color: #5B67F1;">
+          </div>
+          <div onClick="{{ signIn }}" style="text-align: center; background: #5B67F1; color: #0B0D10; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; padding: 10px 0; border-radius: 4px; cursor: pointer;" style-hover="background: #6E7BF2;">SIGN IN</div>
+        </div>
+        <div style="font-size: 9px; color: #464F60; text-align: center; line-height: 1.6;">single-user dashboard · sits behind Cloudflare Access + app auth in production. Every API call routes through one client; any 401 lands here.</div>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== TOAST ===== -->
+  <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #14172B; border: 1px solid #5B67F1; color: #A9B2FF; font-size: 10px; font-weight: 700; padding: 9px 18px; border-radius: 6px; z-index: 120; letter-spacing: 0.04em;">{{ toast }}</div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;scenario&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;options&quot;: [&quot;mid&quot;, &quot;day1&quot;], &quot;default&quot;: &quot;mid&quot;, &quot;tsType&quot;: &quot;'mid' | 'day1'&quot;, &quot;section&quot;: &quot;Scenario&quot;}, &quot;killEngaged&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: false, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Scenario&quot;}, &quot;wsConnected&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Scenario&quot;}, &quot;loggedIn&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Scenario&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const rng = (seed => () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296)(42);
+    this.rng = rng;
+    const walk = (n, start, vol) => { const p = [start]; for (let i = 1; i < n; i++) p.push(p[i - 1] + (rng() - 0.46) * vol); return p; };
+
+    // ---- assets ----
+    this.A = [
+      { sym: 'BTC', color: '#F7931A', strike: 63124.02, spot: 63209.98, vol: 9, dp: 2, cd: 205, imp: 0.992, mod: 0.955, thr: 3, pos: null, sm: { lean: 'UP', str: 0.62 }, sess: { net: 4.12, trades: 5 }, book: { bid: 99.2, ask: 99.3, depth: '79.8k', age: '1.6s' }, paused: false, stale: false },
+      { sym: 'ETH', color: '#7C8CF8', strike: 2838.10, spot: 2841.37, vol: 0.7, dp: 2, cd: 512, imp: 0.580, mod: 0.660, thr: 3, pos: { side: 'YES', qty: 20, avg: 41.0, upnl: 3.40 }, sm: { lean: 'UP', str: 0.62 }, sess: { net: 9.85, trades: 7 }, book: { bid: 57.5, ask: 58.5, depth: '12.4k', age: '0.4s' }, paused: false, stale: false },
+      { sym: 'SOL', color: '#22D3A5', strike: 143.20, spot: 142.55, vol: 0.05, dp: 2, cd: 748, imp: 0.380, mod: 0.350, thr: 3, pos: null, sm: { lean: 'DOWN', str: 0.41 }, sess: { net: -2.10, trades: 3 }, book: { bid: 37.5, ask: 38.5, depth: '8.1k', age: '0.8s' }, paused: false, stale: false },
+      { sym: 'ZEC', color: '#B45AF2', strike: 47.95, spot: 48.12, vol: 0.02, dp: 2, cd: 385, imp: 0.610, mod: 0.680, thr: 5, pos: null, sm: { lean: null, str: 0 }, sess: { net: 0.85, trades: 2 }, book: { bid: 59.5, ask: 62.0, depth: '1.2k', age: '2.1s' }, paused: false, stale: false },
+      { sym: 'HYPE', color: '#4ED6C0', strike: 39.180, spot: 39.402, vol: 0.02, dp: 3, cd: 640, imp: 0.720, mod: 0.790, thr: 5, pos: { side: 'YES', qty: 40, avg: 66.0, upnl: 2.40 }, sm: { lean: 'UP', str: 0.55 }, sess: { net: 6.20, trades: 4 }, book: { bid: 71.5, ask: 72.5, depth: '3.4k', age: '0.6s' }, paused: false, stale: false },
+      { sym: 'XRP', color: '#5EA8F5', strike: 2.8092, spot: 2.8140, vol: 0.0009, dp: 4, cd: 121, imp: 0.770, mod: 0.740, thr: 3, pos: null, sm: { lean: null, str: 0 }, sess: { net: 0.0, trades: 0 }, book: { bid: 76.5, ask: 77.5, depth: '5.5k', age: '1.1s' }, paused: true, stale: false },
+      { sym: 'DOGE', color: '#D9B44A', strike: 0.31410, spot: 0.31245, vol: 0.00008, dp: 5, cd: 335, imp: 0.290, mod: 0.310, thr: 3, pos: null, sm: { lean: 'DOWN', str: 0.38 }, sess: { net: -1.35, trades: 2 }, book: { bid: 28.5, ask: 29.5, depth: '6.7k', age: '12.4s' }, paused: false, stale: true, staleAge: 12 },
+      { sym: 'BNB', color: '#EFB90B', strike: 610.90, spot: 612.44, vol: 0.25, dp: 2, cd: 458, imp: 0.640, mod: 0.610, thr: 3, pos: { side: 'NO', qty: 15, avg: 35.0, upnl: -0.45 }, sm: { lean: 'UP', str: 0.30 }, sess: { net: 1.90, trades: 3 }, book: { bid: 63.5, ask: 64.5, depth: '4.2k', age: '0.9s' }, paused: false, stale: false },
+      { sym: 'NEAR', color: '#F0619E', strike: 4.201, spot: 4.182, vol: 0.002, dp: 3, cd: 62, imp: 0.180, mod: 0.150, thr: 5, pos: null, sm: { lean: 'DOWN', str: 0.52 }, sess: { net: -3.40, trades: 4 }, book: { bid: 17.5, ask: 18.5, depth: '2.8k', age: '0.7s' }, paused: false, stale: false },
+    ];
+    this.A.forEach(a => { a.series = walk(48, a.spot - a.vol * 8, a.vol * 1.6); a.series[a.series.length - 1] = a.spot; });
+
+    // ---- leaderboard ----
+    const mkRegimes = (pf) => [
+      { name: 'EARLY', col: '#7FA3D8', pf: (pf * 0.86).toFixed(2), hit: Math.round(50 + pf * 3) + '%', n: 40 + Math.round(rng() * 60) },
+      { name: 'MID', col: '#4ACB82', pf: (pf * 1.14).toFixed(2), hit: Math.round(52 + pf * 4) + '%', n: 60 + Math.round(rng() * 80) },
+      { name: 'LATE', col: '#E0A93E', pf: (pf * 0.94).toFixed(2), hit: Math.round(51 + pf * 3) + '%', n: 30 + Math.round(rng() * 50) },
+    ];
+    const mkTod = (pf) => [
+      { name: '00–06', pf: (pf * 0.9).toFixed(2), n: 38 }, { name: '06–12', pf: (pf * 1.05).toFixed(2), n: 52 },
+      { name: '12–18', pf: (pf * 1.12).toFixed(2), n: 61 }, { name: '18–24', pf: (pf * 0.95).toFixed(2), n: 47 },
+    ];
+    this.LB = [
+      { sym: 'ETH', strategy: 'latency_momentum_v1', pf: 1.84, pl: 142, npc: 0.031, roc: 0.19, hit: 0.58, bm: 0.19, bk: 0.24, sigd: 41, fill: 0.83, sprd: 1.2, slip: 0.4, dd: -42, streak: 6, vol: 8.2, n: 214, nw: 288, conf: 'HIGH', rec: 'KEEP', smDelta: 0.11 },
+      { sym: 'BTC', strategy: 'latency_momentum_v1', pf: 1.52, pl: 118, npc: 0.024, roc: 0.15, hit: 0.56, bm: 0.21, bk: 0.23, sigd: 38, fill: 0.87, sprd: 0.8, slip: 0.3, dd: -38, streak: 5, vol: 7.1, n: 302, nw: 288, conf: 'HIGH', rec: 'KEEP', smDelta: 0.06 },
+      { sym: 'HYPE', strategy: 'vol_breakout_v1', pf: 1.41, pl: 104, npc: 0.028, roc: 0.14, hit: 0.57, bm: 0.20, bk: 0.22, sigd: 22, fill: 0.74, sprd: 2.1, slip: 0.9, dd: -51, streak: 7, vol: 9.8, n: 96, nw: 265, conf: 'MED', rec: 'KEEP', smDelta: 0.14 },
+      { sym: 'ZEC', strategy: 'mean_revert_v2', pf: 1.21, pl: 64, npc: 0.014, roc: 0.08, hit: 0.54, bm: 0.23, bk: 0.24, sigd: 9, fill: 0.61, sprd: 2.5, slip: 1.2, dd: -29, streak: 4, vol: 5.5, n: 41, nw: 240, conf: 'LOW', rec: 'RETUNE', smDelta: -0.02 },
+      { sym: 'SOL', strategy: 'latency_momentum_v1', pf: 1.18, pl: 58, npc: 0.011, roc: 0.07, hit: 0.53, bm: 0.22, bk: 0.22, sigd: 33, fill: 0.81, sprd: 1.1, slip: 0.5, dd: -47, streak: 8, vol: 8.9, n: 187, nw: 288, conf: 'MED', rec: 'RETUNE', smDelta: 0.03 },
+      { sym: 'BNB', strategy: 'mean_revert_v2', pf: 1.09, pl: 31, npc: 0.006, roc: 0.04, hit: 0.52, bm: 0.23, bk: 0.22, sigd: 18, fill: 0.78, sprd: 1.4, slip: 0.6, dd: -44, streak: 6, vol: 6.4, n: 143, nw: 281, conf: 'MED', rec: 'RETUNE', smDelta: -0.04 },
+      { sym: 'XRP', strategy: 'latency_momentum_v1', pf: 0.94, pl: -18, npc: -0.004, roc: -0.02, hit: 0.50, bm: 0.24, bk: 0.23, sigd: 27, fill: 0.84, sprd: 1.0, slip: 0.4, dd: -56, streak: 9, vol: 7.7, n: 118, nw: 288, conf: 'MED', rec: 'BENCH', smDelta: 0.01 },
+      { sym: 'DOGE', strategy: 'vol_breakout_v1', pf: 0.87, pl: -34, npc: -0.008, roc: -0.05, hit: 0.49, bm: 0.25, bk: 0.24, sigd: 15, fill: 0.72, sprd: 1.8, slip: 0.8, dd: -63, streak: 11, vol: 9.1, n: 77, nw: 270, conf: 'LOW', rec: 'BENCH', smDelta: -0.06 },
+      { sym: 'NEAR', strategy: 'mean_revert_v2', pf: 0.71, pl: -52, npc: -0.013, roc: -0.09, hit: 0.46, bm: 0.26, bk: 0.24, sigd: 7, fill: 0.58, sprd: 2.4, slip: 1.1, dd: -71, streak: 12, vol: 6.9, n: 24, nw: 233, conf: 'LOW', rec: 'BENCH', smDelta: 0.0 },
+    ];
+    this.LB.forEach(r => { r.regimes = mkRegimes(r.pf); r.tod = mkTod(r.pf); });
+
+    // ---- equity ----
+    this.EQ = {};
+    this.A.forEach(a => {
+      const lbr = this.LB.find(r => r.sym === a.sym);
+      const drift = (lbr.pf - 1) * 1.6;
+      let v = 0; const pts = [0];
+      for (let i = 1; i < 90; i++) { v += drift + (rng() - 0.5) * 6; pts.push(v); }
+      this.EQ[a.sym] = pts;
+    });
+
+    // ---- trades ----
+    const reasonings = [
+      'Spot momentum +0.26% over 1m with the book lagging: implied 58c vs model 66c. Flow imbalance 0.59 confirms directional pressure. Entering YES in MID regime; edge clears the threshold after spread and fees.',
+      'Mean-reversion setup: 5m return -0.42% with realized vol elevated and depth thin on the continuation side. Book is overpricing the move. Buying NO; sized down for slippage on a 2.5c spread.',
+      'Late-window convergence trade: model 88c vs book 84c with 210s remaining and spot 1.4 sigma above strike. Smart-money lean UP 0.55 raises confidence. Entering YES; will not add past the 90s blackout.',
+      'Vol breakout: 30s return spiked 3.1x the 5m realized vol baseline with flow imbalance 0.71. Book has not repriced. Buying YES at the ask; expecting reprice within 60s.',
+    ];
+    const strategies = { BTC: 'latency_momentum_v1', ETH: 'latency_momentum_v1', SOL: 'latency_momentum_v1', ZEC: 'mean_revert_v2', HYPE: 'vol_breakout_v1', XRP: 'latency_momentum_v1', DOGE: 'vol_breakout_v1', BNB: 'mean_revert_v2', NEAR: 'mean_revert_v2' };
+    const syms = this.A.map(a => a.sym);
+    this.TRADES = [];
+    let ts = 1783197400;
+    for (let i = 0; i < 36; i++) {
+      const sym = syms[Math.floor(rng() * 9)];
+      const yes = rng() > 0.45;
+      const win = rng() > 0.44;
+      const price = 0.25 + rng() * 0.5;
+      const qty = 5 + Math.floor(rng() * 8) * 5;
+      const fees = qty * 0.017 * (1 - Math.abs(price - 0.5));
+      const pnl = win ? qty * (1 - price) - fees : -(qty * price) - fees;
+      const src = rng() > 0.4 ? 'claude' : 'baseline';
+      const regs = ['EARLY', 'MID', 'MID', 'LATE'];
+      ts -= 7200 + Math.floor(rng() * 32000);
+      this.TRADES.push({
+        id: 991 - i, ts, asset: sym, intent: yes ? 'BUY_YES' : 'BUY_NO', qty,
+        fill: price, fees, result: win ? (yes ? 'yes' : 'no') : (yes ? 'no' : 'yes'),
+        pnl, strategy: strategies[sym], regime: regs[Math.floor(rng() * 4)],
+        source: src, smLean: rng() > 0.5 ? 'UP 0.' + (30 + Math.floor(rng() * 40)) : 'neutral',
+        conf: (0.55 + rng() * 0.35).toFixed(2), latency: Math.round(1800 + rng() * 3200) + 'ms',
+        reasoning: reasonings[Math.floor(rng() * reasonings.length)],
+        ticker: 'KX' + sym + '15M-26JUL04' + (10 + Math.floor(rng() * 8)) + '' + (Math.floor(rng() * 4) * 15 || '00'),
+      });
+    }
+
+    // ---- smart money ----
+    this.PATTERNS = [
+      { id: 'sweep_mid_window', desc: 'Aggressive taker sweep >$2k in MID regime, same direction twice within 90s', hit: 0.61, n: 140, status: 'ACTIVE', leans: [['BTC', 'UP'], ['ETH', 'UP']] },
+      { id: 'fade_open_spike', desc: 'First-minute price spike >8c that reverts; fade the spike direction', hit: 0.57, n: 212, status: 'ACTIVE', leans: [['SOL', 'DOWN']] },
+      { id: 'polymarket_divergence', desc: 'Polymarket hourly implied diverges >6c from Kalshi book mid', hit: 0.59, n: 98, status: 'ACTIVE', leans: [['HYPE', 'UP'], ['DOGE', 'DOWN']] },
+      { id: 'whale_follow_late', desc: 'Follow single >$5k order in LATE regime', hit: 0.48, n: 67, status: 'BENCHED', leans: [] },
+    ];
+    this.WALLETS = [
+      { addr: '0x12ab…9f3c', wr: 0.64, lo: 0.58, hi: 0.70, n: 312, profit: 48210, entry: 210, positions: [{ asset: 'BTC', side: 'UP', size: '$1.2k' }] },
+      { addr: '0x88fe…12aa', wr: 0.61, lo: 0.55, hi: 0.67, n: 256, profit: 31400, entry: 340, positions: [{ asset: 'ETH', side: 'UP', size: '$800' }, { asset: 'SOL', side: 'DOWN', size: '$450' }] },
+      { addr: '0x3c9d…77b2', wr: 0.58, lo: 0.49, hi: 0.66, n: 120, profit: 12800, entry: 150, positions: [] },
+    ];
+    this.BLACKOUTS = [
+      { label: 'FOMC rate decision', when: 'JUL 29 · 18:00–19:30 UTC', assets: ['ALL'] },
+      { label: 'CPI print', when: 'JUL 15 · 12:25–12:50 UTC', assets: ['ALL'] },
+      { label: 'ETH Pectra upgrade window', when: 'JUL 21 · 06:00–12:00 UTC', assets: ['ETH'] },
+    ];
+
+    // ---- state ----
+    const cfg = {};
+    this.A.forEach(a => { cfg[a.sym] = { strategy: strategies[a.sym], threshold: a.thr, maxPos: 100, smWeight: a.sym === 'ETH' || a.sym === 'HYPE' ? 0.4 : 0.0, paused: a.paused }; });
+    this.state = {
+      view: 'live', liveSort: 'fixed', drawer: null,
+      lbBasis: 'net', lbSm: 'with', lbRegime: 'ALL', lbSort: { key: 'pf', dir: -1 }, lbOpen: null,
+      histAsset: 'ALL', histSource: 'ALL', histBasis: 'net', tradeOpen: null, hiddenEq: {},
+      cfg, killModal: false, kill: null, scenario: null, toast: null, tick: 0, staleAge: 12,
+      ws: null, auth: null, reconnectIn: 5, globalStale: 0, theme: 'dark', flash: false,
+    };
+  }
+
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      const wsUp = this.state.ws !== null ? this.state.ws : (this.props.wsConnected ?? true);
+      if (wsUp) {
+        this.A.forEach(a => {
+          a.cd = a.cd <= 1 ? 900 : a.cd - 1;
+          if (!a.stale) {
+            const prev = a.spot;
+            a.spot += (this.rng() - 0.5) * a.vol * 2;
+            a._delta = a.spot - prev;
+            a.series.push(a.spot); a.series.shift();
+          }
+        });
+        this.setState(s => ({ tick: s.tick + 1, staleAge: s.staleAge + 1, flash: true, globalStale: 0, reconnectIn: 5 }));
+        clearTimeout(this._flashT);
+        this._flashT = setTimeout(() => this.setState({ flash: false }), 320);
+      } else {
+        this.A.forEach(a => { a.cd = a.cd <= 1 ? 900 : a.cd - 1; });
+        this.setState(s => ({ tick: s.tick + 1, globalStale: s.globalStale + 1, reconnectIn: s.reconnectIn <= 1 ? 5 : s.reconnectIn - 1 }));
+      }
+    }, 1000);
+  }
+  componentWillUnmount() { clearInterval(this.timer); clearTimeout(this._flashT); }
+
+  fmtCd(s) { const m = Math.floor(s / 60), r = Math.floor(s % 60); return String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0'); }
+  regime(s) { return s > 600 ? 'EARLY' : s > 300 ? 'MID' : s > 90 ? 'LATE' : 'SETTLEMENT'; }
+  regCol(r) { return { EARLY: { bg: '#1A2334', fg: '#7FA3D8' }, MID: { bg: '#12291C', fg: '#4ACB82' }, LATE: { bg: '#2E2410', fg: '#E0A93E' }, SETTLEMENT: { bg: '#33141A', fg: '#F0616F' } }[r]; }
+  spark(series, strike) {
+    const lo = Math.min(...series, strike), hi = Math.max(...series, strike);
+    const pad = (hi - lo) * 0.12 || 1; const l = lo - pad, h = hi + pad;
+    const y = v => ((30) - ((v - l) / (h - l)) * 28);
+    return { points: series.map((v, i) => ((i / (series.length - 1)) * 120).toFixed(1) + ',' + y(v).toFixed(1)).join(' '), strikeY: y(strike).toFixed(1) };
+  }
+  num(v, dp) { return v.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp }); }
+  money(v) { return (v >= 0 ? '+$' : '\u2212$') + Math.abs(v).toFixed(2); }
+  time(ts) {
+    const d = new Date(ts * 1000);
+    const mo = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][d.getUTCMonth()];
+    return mo + ' ' + String(d.getUTCDate()).padStart(2, '0') + ' ' + String(d.getUTCHours()).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0');
+  }
+
+  btn(label, active, go, activeCol) {
+    return { label, go, color: active ? (activeCol || '#A9B2FF') : '#5C6675', bg: active ? '#14172B' : 'transparent', border: active ? '#5B67F1' : '#232838' };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const GREEN = '#2FD180', RED = '#F0525F', AMBER = '#E0A93E', DIM = '#5C6675';
+    const kill = s.kill !== null ? s.kill : (this.props.killEngaged ?? false);
+    const scenario = s.scenario !== null ? s.scenario : (this.props.scenario ?? 'mid');
+    const day1 = scenario === 'day1';
+    const wsUp = s.ws !== null ? s.ws : (this.props.wsConnected ?? true);
+    const authed = s.auth !== null ? s.auth : (this.props.loggedIn ?? true);
+    const set = (o) => () => this.setState(o);
+
+    // tabs
+    const views = [['live', 'LIVE'], ['lb', 'LEADERBOARD'], ['sm', 'SMART MONEY'], ['hist', 'HISTORY'], ['cfg', 'CONFIG']];
+    const tabs = views.map(([v, label]) => ({ label, go: set({ view: v }), color: s.view === v ? '#E4E9F2' : '#5C6675', bg: s.view === v ? '#171A2B' : 'transparent' }));
+
+    // live cards
+    let cards = this.A.map(a => {
+      const reg = this.regime(a.cd); const rc = this.regCol(reg);
+      const sp = this.spark(a.series, a.strike);
+      const dist = a.spot - a.strike;
+      const edgeYes = a.mod - a.imp;
+      const side = edgeYes >= 0 ? 'YES' : 'NO';
+      const edgeNetC = Math.abs(edgeYes) * 100 - 1.0;
+      const clears = edgeNetC >= a.thr && !a.paused && reg !== 'SETTLEMENT';
+      const sess = day1 ? { net: 0, trades: 0 } : a.sess;
+      const staleNow = a.stale || !wsUp;
+      const spotDelta = a._delta || 0;
+      return {
+        sym: a.sym, color: a.color, ticker: 'KX' + a.sym + '15M-26JUL041645-' + Math.round(a.strike % 89),
+        regime: reg === 'SETTLEMENT' ? 'SETTLEMENT · LOCKED' : reg,
+        regBg: rc.bg, regFg: rc.fg,
+        cd: this.fmtCd(a.cd), cdCol: reg === 'SETTLEMENT' ? '#F0616F' : '#E4E9F2',
+        paused: a.paused, stale: staleNow, staleAge: (a.stale ? s.staleAge : s.globalStale) + 's', halted: kill,
+        opacity: staleNow ? 0.55 : (a.paused ? 0.75 : 1),
+        spotCol: (s.flash && !staleNow && wsUp) ? (spotDelta >= 0 ? GREEN : RED) : '#E4E9F2',
+        borderCol: clears ? 'rgba(47,209,128,0.4)' : '#1D2130',
+        shadow: clears ? '0 0 0 1px rgba(47,209,128,0.25)' : 'none',
+        spark: sp.points, strikeY: sp.strikeY,
+        spot: this.num(a.spot, a.dp), strikeFmt: this.num(a.strike, a.dp),
+        dist: (dist >= 0 ? '+' : '\u2212') + this.num(Math.abs(dist), a.dp),
+        arr: dist >= 0 ? '\u25B2' : '\u25BC', distCol: dist >= 0 ? GREEN : RED,
+        impW: a.imp * 100, modW: a.mod * 100,
+        impFmt: (a.imp * 100).toFixed(1) + '\u00A2', modFmt: (a.mod * 100).toFixed(1) + '\u00A2',
+        edgeText: 'edge ' + side + ' +' + edgeNetC.toFixed(1) + '\u00A2 net ' + (clears ? '\u2014 clears ' + a.thr + '\u00A2 threshold' : '\u2014 below ' + a.thr + '\u00A2 threshold'),
+        edgeCol: clears ? GREEN : '#8B94A3',
+        bookStr: a.book.bid.toFixed(1) + '/' + a.book.ask.toFixed(1),
+        spread: (a.book.ask - a.book.bid).toFixed(1) + '\u00A2', depth: a.book.depth,
+        bookAge: a.stale ? s.staleAge + 's' : a.book.age,
+        hasPos: !!a.pos && !day1,
+        posStr: a.pos ? a.pos.side + ' ' + a.pos.qty + ' @ ' + a.pos.avg.toFixed(1) + '\u00A2' : '',
+        posCol: a.pos && a.pos.side === 'YES' ? GREEN : RED,
+        uPnl: a.pos ? this.money(a.pos.upnl) : '', uPnlCol: a.pos && a.pos.upnl >= 0 ? GREEN : RED,
+        smText: a.sm.lean ? (a.sm.lean === 'UP' ? '\u25B2 ' : '\u25BC ') + a.sm.str.toFixed(2) : '\u25CF neutral',
+        smCol: a.sm.lean === 'UP' ? GREEN : a.sm.lean === 'DOWN' ? RED : DIM,
+        pnl: this.money(sess.net), pnlCol: sess.net > 0 ? GREEN : sess.net < 0 ? RED : DIM,
+        nTrades: sess.trades,
+        open: () => this.setState({ drawer: a.sym }),
+        _edge: edgeNetC, _pnl: sess.net,
+      };
+    });
+    if (s.liveSort === 'edge') cards = cards.slice().sort((a, b) => b._edge - a._edge);
+    if (s.liveSort === 'pnl') cards = cards.slice().sort((a, b) => b._pnl - a._pnl);
+
+    const sortBtns = [['fixed', 'FIXED'], ['edge', '|EDGE|'], ['pnl', 'SESSION PNL']].map(([k, l]) => this.btn(l, s.liveSort === k, set({ liveSort: k })));
+
+    // leaderboard
+    const gross = s.lbBasis === 'gross';
+    const regF = { ALL: 1, EARLY: 0.86, MID: 1.14, LATE: 0.94 }[s.lbRegime];
+    const smOff = s.lbSm === 'without';
+    let rows = this.LB.map(r => {
+      const pfBase = (gross ? r.pf + 0.22 : r.pf) * regF - (smOff ? r.smDelta : 0);
+      return { ...r, _pf: pfBase, _pl: Math.round((gross ? r.pl + 24 : r.pl) * regF), _hit: r.hit };
+    });
+    const sk = s.lbSort.key, sd = s.lbSort.dir;
+    rows = rows.sort((a, b) => {
+      const va = sk === 'pf' ? a._pf : sk === 'pl' ? a._pl : sk === 'hit' ? a.hit : a.n;
+      const vb = sk === 'pf' ? b._pf : sk === 'pl' ? b._pl : sk === 'hit' ? b.hit : b.n;
+      return sd === -1 ? vb - va : va - vb;
+    });
+    const lbRows = rows.map((r, i) => {
+      const asset = this.A.find(a => a.sym === r.sym);
+      const eqPts = this.EQ[r.sym];
+      const lo = Math.min(...eqPts, 0), hi = Math.max(...eqPts, 0);
+      const y = v => 38 - ((v - lo) / (hi - lo || 1)) * 36;
+      const badge = r.n < 30 ? 'INSUFF' : r.n < 100 ? 'LOW' : '';
+      const confMap = { HIGH: ['#12291C', '#4ACB82'], MED: ['#1A2334', '#7FA3D8'], LOW: ['#2A2210', '#E0A93E'] };
+      const recMap = { KEEP: ['#10231A', GREEN], RETUNE: ['#2A2210', AMBER], BENCH: ['#1B1D28', '#8B94A3'] };
+      const better = r.bm < r.bk;
+      return {
+        rank: i + 1, sym: r.sym, color: asset.color, strategy: r.strategy,
+        conf: r.conf, confBg: confMap[r.conf][0], confFg: confMap[r.conf][1],
+        pf: r._pf.toFixed(2), pl: (r._pl >= 0 ? '+' : '') + r._pl + '%',
+        npc: (r.npc >= 0 ? '+' : '\u2212') + Math.abs(r.npc * 100).toFixed(1) + '\u00A2',
+        roc: (r.roc >= 0 ? '+' : '\u2212') + Math.abs(r.roc * 100).toFixed(0) + '%',
+        hit: (r.hit * 100).toFixed(0) + '%',
+        brierM: r.bm.toFixed(2).slice(1), brierMkt: r.bk.toFixed(2).slice(1),
+        brierMCol: better ? GREEN : '#8B94A3', brierMark: better ? '1px solid ' + GREEN : 'none',
+        sigd: r.sigd, fill: (r.fill * 100).toFixed(0) + '%', sprd: r.sprd.toFixed(1) + '\u00A2',
+        dd: '$' + r.dd, n: r.n, hasBadge: !!badge, badge,
+        badgeBg: badge === 'INSUFF' ? '#33141A' : '#2A2210', badgeFg: badge === 'INSUFF' ? RED : AMBER,
+        rec: r.rec, recBg: recMap[r.rec][0], recFg: recMap[r.rec][1],
+        showDelta: s.lbSm === 'both', smDelta: (r.smDelta >= 0 ? '+' : '\u2212') + Math.abs(r.smDelta).toFixed(2),
+        deltaCol: r.smDelta >= 0 ? GREEN : RED,
+        open: s.lbOpen === r.sym, toggle: () => this.setState({ lbOpen: s.lbOpen === r.sym ? null : r.sym }),
+        rowBg: s.lbOpen === r.sym ? '#0F111A' : 'transparent',
+        regimes: r.regimes, tod: r.tod,
+        eqSpark: eqPts.map((v, j) => ((j / (eqPts.length - 1)) * 200).toFixed(1) + ',' + y(v).toFixed(1)).join(' '),
+        eqZero: y(0).toFixed(1),
+        streak: r.streak, vol: r.vol, slip: r.slip,
+        goHistory: () => this.setState({ view: 'hist', histAsset: r.sym }),
+      };
+    });
+    // leaderboard bottom panels
+    const lbPfBars = rows.map(r => {
+      const asset = this.A.find(a => a.sym === r.sym);
+      return {
+        sym: r.sym, color: asset.color, pf: r._pf.toFixed(2),
+        w: Math.min(r._pf / 2.0, 1) * 100,
+        barCol: r._pf >= 1 ? '#5B67F1' : '#6E2530',
+        valCol: r._pf >= 1 ? '#E4E9F2' : '#F0868F',
+      };
+    });
+    const calPos = v => Math.max(0, Math.min(100, (v - 0.15) / 0.15 * 100)) * 0.94;
+    const lbCal = rows.map(r => {
+      const mL = calPos(r.bm), kL = calPos(r.bk);
+      const better = r.bm < r.bk;
+      return {
+        sym: r.sym, m: r.bm.toFixed(2).slice(1), k: r.bk.toFixed(2).slice(1),
+        mL, kL, connL: Math.min(mL, kL) + 1, connW: Math.abs(mL - kL),
+        connCol: better ? GREEN : RED,
+        mValCol: better ? GREEN : '#8B94A3',
+      };
+    });
+    const sumPnlVal = this.A.reduce((sum, a) => sum + this.EQ[a.sym][89], 0);
+    const bestRow = this.LB[0], worstRow = this.LB[this.LB.length - 1];
+    const summary = {
+      sumPnl: this.money(sumPnlVal), sumPnlCol: sumPnlVal >= 0 ? GREEN : RED,
+      sumTrades: this.LB.reduce((t, r) => t + r.n, 0).toLocaleString(),
+      sumWindows: this.LB.reduce((t, r) => t + r.nw, 0).toLocaleString(),
+      sumFill: Math.round(this.LB.reduce((t, r) => t + r.fill, 0) / this.LB.length * 100) + '%',
+      sumBest: bestRow.sym, sumBestPf: 'PF ' + bestRow.pf.toFixed(2),
+      sumWorst: worstRow.sym, sumWorstPf: 'PF ' + worstRow.pf.toFixed(2),
+    };
+
+    const sortHdr = (key) => ({ col: sk === key ? '#A9B2FF' : '#5C6675', arr: sk === key ? (sd === -1 ? '\u2193' : '\u2191') : '', go: () => this.setState({ lbSort: { key, dir: sk === key ? -sd : -1 } }) });
+    const hPf = sortHdr('pf'), hPl = sortHdr('pl'), hHit = sortHdr('hit'), hN = sortHdr('n');
+
+    // smart money
+    const leanChips = this.A.map(a => ({
+      sym: a.sym, color: a.color,
+      lean: a.sm.lean ? (a.sm.lean === 'UP' ? '\u25B2' : '\u25BC') + ' ' + a.sm.str.toFixed(2) : '\u25CF',
+      leanCol: a.sm.lean === 'UP' ? GREEN : a.sm.lean === 'DOWN' ? RED : DIM,
+    }));
+    const patterns = this.PATTERNS.map(p => ({
+      id: p.id, desc: p.desc, hit: (p.hit * 100).toFixed(0) + '%', n: p.n, lowN: p.n < 100,
+      hitCol: p.hit >= 0.55 ? GREEN : p.hit >= 0.5 ? '#E4E9F2' : RED,
+      status: p.status, stBg: p.status === 'ACTIVE' ? '#10231A' : '#1B1D28', stFg: p.status === 'ACTIVE' ? GREEN : '#8B94A3',
+      opacity: p.status === 'BENCHED' ? 0.45 : 1,
+      leans: p.leans.length ? p.leans.map(([sym, dir]) => ({ txt: sym + ' ' + (dir === 'UP' ? '\u25B2' : '\u25BC'), col: dir === 'UP' ? GREEN : RED })) : [{ txt: '\u2014', col: DIM }],
+    }));
+    const wallets = this.WALLETS.map(w => ({
+      addr: w.addr, wr: (w.wr * 100).toFixed(0) + '%', ci: (w.lo * 100).toFixed(0) + '\u2013' + (w.hi * 100).toFixed(0),
+      ciLeft: (w.lo - 0.4) / 0.4 * 100, ciWidth: (w.hi - w.lo) / 0.4 * 100, wrPos: (w.wr - 0.4) / 0.4 * 100,
+      n: w.n, profit: '+$' + (w.profit / 1000).toFixed(1) + 'k', entry: w.entry + 's after open',
+      positions: w.positions.length ? w.positions.map(p => ({ asset: p.asset, side: p.side === 'UP' ? '\u25B2 UP' : '\u25BC DOWN', col: p.side === 'UP' ? GREEN : RED, size: p.size })) : [{ asset: '\u2014', side: 'flat', col: DIM, size: '' }],
+      copy: () => { navigator.clipboard && navigator.clipboard.writeText(w.addr); this.toast('address copied'); },
+    }));
+
+    // history
+    const histGross = s.histBasis === 'gross';
+    const range = s.histRange || 'campaign';
+    // 90 equity points over 9 days => 10 points/day
+    const sliceN = range === '24h' ? 11 : range === '7d' ? 71 : 90;
+    const rangeSlice = (sym) => {
+      const full = this.EQ[sym].slice(90 - sliceN);
+      const base = full[0];
+      return full.map(v => (v - base) * (histGross ? 1.22 : 1));
+    };
+    const visible = this.A.filter(a => !s.hiddenEq[a.sym]);
+    const allPts = visible.flatMap(a => rangeSlice(a.sym));
+    const eLo = Math.min(...allPts, 0), eHi = Math.max(...allPts, 1);
+    const ey = v => 232 - ((v - eLo) / (eHi - eLo || 1)) * 224;
+    const eqSeries = visible.map(a => {
+      const pts = rangeSlice(a.sym);
+      return {
+        color: a.color,
+        pts: pts.map((v, i) => ((i / (pts.length - 1)) * 800).toFixed(1) + ',' + ey(v).toFixed(1)).join(' '),
+      };
+    });
+    const eqLegend = this.A.map(a => {
+      const pts = rangeSlice(a.sym);
+      const last = pts[pts.length - 1];
+      return {
+        sym: a.sym, color: a.color, opacity: s.hiddenEq[a.sym] ? 0.3 : 1,
+        pnl: this.money(last), pnlCol: last >= 0 ? GREEN : RED,
+        toggle: () => this.setState(st => ({ hiddenEq: { ...st.hiddenEq, [a.sym]: !st.hiddenEq[a.sym] } })),
+      };
+    });
+    const eqXLabels = range === '24h' ? ['JUL 03 16:00', '22:00', 'JUL 04 04:00', '10:00', '16:00']
+      : range === '7d' ? ['JUN 27', 'JUN 29', 'JUL 01', 'JUL 03', 'JUL 04']
+      : ['JUN 25', 'JUN 28', 'JUL 01', 'JUL 04'];
+    const NOW = 1783197600;
+    const cutoff = range === '24h' ? NOW - 86400 : range === '7d' ? NOW - 604800 : 0;
+    const fTrades = this.TRADES.filter(t => t.ts >= cutoff && (s.histAsset === 'ALL' || t.asset === s.histAsset) && (s.histSource === 'ALL' || t.source === s.histSource));
+    const trades = fTrades.map(t => ({
+      time: this.time(t.ts), asset: t.asset, intent: t.intent,
+      intentCol: t.intent === 'BUY_YES' ? GREEN : RED,
+      qty: t.qty, fill: (t.fill * 100).toFixed(1) + '\u00A2', fees: '$' + t.fees.toFixed(2),
+      result: t.result.toUpperCase(), resCol: t.result === 'yes' ? GREEN : RED,
+      pnl: this.money(histGross ? t.pnl + t.fees : t.pnl), pnlCol: t.pnl >= 0 ? GREEN : RED,
+      strategy: t.strategy, regime: t.regime,
+      regCol: this.regCol(t.regime).fg,
+      source: t.source.toUpperCase(), srcBg: t.source === 'claude' ? '#14172B' : '#1B1D28', srcFg: t.source === 'claude' ? '#A9B2FF' : '#8B94A3',
+      open: s.tradeOpen === t.id && t.source === 'claude',
+      toggle: () => t.source === 'claude' && this.setState({ tradeOpen: s.tradeOpen === t.id ? null : t.id }),
+      conf: t.conf, latency: t.latency, reasoning: t.reasoning, ticker: t.ticker,
+      smState: t.smLean === 'neutral' ? '\u25CF neutral' : '\u25B2 ' + t.smLean.split(' ')[1],
+      smCol: t.smLean === 'neutral' ? DIM : GREEN,
+    }));
+
+    // config
+    const cfgCards = this.A.map(a => {
+      const c = s.cfg[a.sym];
+      const upd = (field) => (e) => this.setState(st => ({ cfg: { ...st.cfg, [a.sym]: { ...st.cfg[a.sym], [field]: e.target.value } } }));
+      return {
+        sym: a.sym, color: a.color, strategy: c.strategy, threshold: c.threshold, maxPos: c.maxPos, smWeight: c.smWeight,
+        setStrategy: upd('strategy'), setThreshold: upd('threshold'), setMaxPos: upd('maxPos'), setSmWeight: upd('smWeight'),
+        pauseLabel: c.paused ? 'PAUSED' : 'RUNNING',
+        pauseCol: c.paused ? AMBER : GREEN, pauseBg: c.paused ? '#2A2210' : '#10231A', pauseBorder: c.paused ? '#4A3D1A' : '#1E4030',
+        togglePause: () => { this.setState(st => ({ cfg: { ...st.cfg, [a.sym]: { ...st.cfg[a.sym], paused: !st.cfg[a.sym].paused } } })); this.toast('POST /api/control/' + (c.paused ? 'resume' : 'pause') + '/' + a.sym + ' \u2192 ok'); },
+        save: () => this.toast('PUT /api/config/assets/' + a.sym + ' \u2192 saved'),
+      };
+    });
+
+    // drawer
+    let drawerVals = { hasDrawer: false, drawerSym: '', drawerTicker: '', drawerColor: '#5B67F1', drawerRegime: '', drawerRegBg: '#1A2334', drawerRegFg: '#7FA3D8', drawerSpark: '', drawerStrikeY: '0', drawerFields: [], drawerTrades: [], drawerNoTrades: false };
+    if (s.drawer) {
+      const a = this.A.find(x => x.sym === s.drawer);
+      const reg = this.regime(a.cd); const rc = this.regCol(reg);
+      const sp = this.spark(a.series, a.strike);
+      const f = (k, v, col) => ({ k, v, col: col || '#C7CEDC' });
+      const edgeYes = a.mod - a.imp;
+      drawerVals = {
+        hasDrawer: true, drawerSym: a.sym, drawerColor: a.color,
+        drawerTicker: 'KX' + a.sym + '15M-26JUL041645 · schema v1 · snapshot age ' + (a.stale ? s.staleAge + 's (STALE)' : '0.1s'),
+        drawerRegime: reg, drawerRegBg: rc.bg, drawerRegFg: rc.fg,
+        drawerSpark: sp.points, drawerStrikeY: sp.strikeY,
+        drawerFields: [
+          f('spot', this.num(a.spot, a.dp)), f('spot_source', a.stale ? 'binance_us' : 'coinbase'),
+          f('floor_strike', this.num(a.strike, a.dp)), f('distance_z', ((a.spot - a.strike) / (a.strike * 0.0015)).toFixed(2)),
+          f('seconds_remaining', a.cd.toFixed(1)), f('regime', reg, rc.fg),
+          f('ret_30s', (this.rng() * 0.0002 - 0.0001).toFixed(6)), f('ret_1m', (this.rng() * 0.0005 - 0.0002).toFixed(6)),
+          f('ret_5m', (this.rng() * 0.001 - 0.0004).toFixed(6)), f('realized_vol_5m', (this.rng() * 0.0001).toFixed(7)),
+          f('yes_bid / ask', a.book.bid.toFixed(1) + ' / ' + a.book.ask.toFixed(1)), f('spread_cents', (a.book.ask - a.book.bid).toFixed(1)),
+          f('implied_prob', (a.imp * 100).toFixed(1) + '\u00A2'), f('model_prob', (a.mod * 100).toFixed(1) + '\u00A2'),
+          f('depth_yes_2c', a.book.depth), f('flow_imbalance', (0.4 + this.rng() * 0.3).toFixed(3)),
+          f('edge_yes_net', ((edgeYes - 0.01) * 100).toFixed(1) + '\u00A2', edgeYes - 0.01 > 0 ? GREEN : RED),
+          f('edge_no_net', ((-edgeYes - 0.01) * 100).toFixed(1) + '\u00A2', -edgeYes - 0.01 > 0 ? GREEN : RED),
+          f('book_age_seconds', a.stale ? s.staleAge.toFixed(1) : '1.6'), f('btc_implied_prob', a.sym === 'BTC' ? 'null' : (this.A[0].imp * 100).toFixed(1) + '\u00A2', a.sym === 'BTC' ? DIM : '#C7CEDC'),
+        ],
+        drawerTrades: day1 ? [] : this.TRADES.filter(t => t.asset === a.sym).slice(0, 3).map(t => ({
+          time: this.time(t.ts), intent: t.intent, intentCol: t.intent === 'BUY_YES' ? GREEN : RED,
+          qty: t.qty, fill: (t.fill * 100).toFixed(1) + '\u00A2', pnl: this.money(t.pnl), pnlCol: t.pnl >= 0 ? GREEN : RED,
+        })),
+        drawerNoTrades: day1 || this.TRADES.filter(t => t.asset === a.sym).length === 0,
+      };
+    }
+
+    return {
+      tabs,
+      isLive: s.view === 'live', isLb: s.view === 'lb', isSm: s.view === 'sm', isHist: s.view === 'hist', isCfg: s.view === 'cfg',
+      killEngaged: kill, killNotEngaged: !kill, killModal: s.killModal,
+      openKill: set({ killModal: true }), closeKill: set({ killModal: false }),
+      confirmKill: () => { this.setState({ kill: true, killModal: false }); this.toast('POST /api/control/kill \u2192 engaged, 3 orders cancelled'); },
+      disengageKill: () => { this.setState({ kill: false }); this.toast('kill switch disengaged \u2014 loops resuming'); },
+      setDay1: set({ scenario: 'day1' }), setDay9: set({ scenario: 'mid' }),
+      day1Col: day1 ? '#A9B2FF' : '#5C6675', day1Bg: day1 ? '#14172B' : 'transparent',
+      day9Col: !day1 ? '#A9B2FF' : '#5C6675', day9Bg: !day1 ? '#14172B' : 'transparent',
+      cards, sortBtns,
+      basisBtns: [['net', 'NET'], ['gross', 'GROSS']].map(([k, l]) => this.btn(l, s.lbBasis === k, set({ lbBasis: k }))),
+      smBtns: [['with', 'WITH'], ['without', 'WITHOUT'], ['both', 'BOTH']].map(([k, l]) => this.btn(l, s.lbSm === k, set({ lbSm: k }))),
+      regimeBtns: [['ALL', 'ALL'], ['EARLY', 'EARLY'], ['MID', 'MID'], ['LATE', 'LATE']].map(([k, l]) => this.btn(l, s.lbRegime === k, set({ lbRegime: k }))),
+      lbRows, lbEmpty: day1, lbHasData: !day1, lbComputedAt: '16:45:02 UTC · version latest',
+      lbPfBars, lbCal, ...summary,
+      sortPf: hPf.go, sortPfCol: hPf.col, sortPfArr: hPf.arr,
+      sortPl: hPl.go, sortPlCol: hPl.col, sortPlArr: hPl.arr,
+      sortHit: hHit.go, sortHitCol: hHit.col, sortHitArr: hHit.arr,
+      sortN: hN.go, sortNCol: hN.col, sortNArr: hN.arr,
+      leanChips, patterns, wallets,
+      histBasisBtns: [['net', 'NET'], ['gross', 'GROSS']].map(([k, l]) => this.btn(l, s.histBasis === k, set({ histBasis: k }))),
+      histRangeBtns: [['24h', '24H'], ['7d', '7D'], ['campaign', 'CAMPAIGN']].map(([k, l]) => this.btn(l, range === k, set({ histRange: k }))),
+      histEmpty: day1, histHasData: !day1,
+      eqSeries, eqLegend, eqZeroY: ey(0).toFixed(1), eqXLabels,
+      pnl24h: day1 ? '$0.00' : this.money(this.A.reduce((sum, a) => sum + (this.EQ[a.sym][89] - this.EQ[a.sym][79]), 0)),
+      pnl24hCol: day1 ? '#5C6675' : (this.A.reduce((sum, a) => sum + (this.EQ[a.sym][89] - this.EQ[a.sym][79]), 0) >= 0 ? GREEN : RED),
+      pnlTotal: day1 ? '$0.00' : this.money(sumPnlVal),
+      pnlTotalCol: day1 ? '#5C6675' : (sumPnlVal >= 0 ? GREEN : RED),
+      histAsset: s.histAsset, setHistAsset: (e) => this.setState({ histAsset: e.target.value }),
+      histSource: s.histSource, setHistSource: (e) => this.setState({ histSource: e.target.value }),
+      trades, tradeCount: trades.length,
+      cfgCards, blackouts: this.BLACKOUTS,
+      toast: s.toast, hasToast: !!s.toast,
+      wsDown: !wsUp, reconnectIn: s.reconnectIn, globalStale: s.globalStale,
+      wsLabel: wsUp ? 'WS CONNECTED' : 'WS DOWN', wsCol: wsUp ? '#8B94A3' : '#E0A93E',
+      wsDot: wsUp ? '#2FD180' : '#E0A93E',
+      toggleWs: () => { this.setState({ ws: !wsUp, globalStale: 0, reconnectIn: 5 }); this.toast(wsUp ? 'simulating WS drop' : 'WS reconnected \u2014 resyncing snapshots'); },
+      toggleTheme: () => { document.body.classList.toggle('light'); this.setState(st => ({ theme: st.theme === 'dark' ? 'light' : 'dark' })); },
+      themeLabel: s.theme === 'dark' ? '\u263C LIGHT' : '\u263E DARK',
+      loggedOut: !authed,
+      signIn: () => { this.setState({ auth: true }); this.toast('session established \u2014 bearer token stored'); },
+      closeDrawer: set({ drawer: null }),
+      ...drawerVals,
+    };
+  }
+
+  toast(msg) {
+    this.setState({ toast: msg });
+    clearTimeout(this._toastT);
+    this._toastT = setTimeout(() => this.setState({ toast: null }), 2600);
+  }
+}
+</script>
+</body>
+</html>
