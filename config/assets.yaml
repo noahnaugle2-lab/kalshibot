@@ -72,6 +72,9 @@ assets:
     spot_symbol_binance: HYPEUSDT
     spot_symbol_coinbase: HYPE-USD
     edge_threshold_cents: 5
+    paused: true   # benched 2026-07-05 by owner: thin_book_maker -$51.98/25tr
+                   # (adverse selection on directional quotes); tape still
+                   # recorded — replacement strategies go through replay first
     strategy: thin_book_maker
     strategy_params: {min_spread_cents: 3.0, model_margin: 0.03, contracts: 10}
   XRP:
