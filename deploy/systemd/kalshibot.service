@@ -1,0 +1,17 @@
+[Unit]
+Description=KalshiBot shadow trader
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kalshi
+WorkingDirectory=/home/kalshi/kalshibot
+ExecStart=/home/kalshi/kalshibot/.venv/bin/python scripts/run_shadow.py
+Restart=on-failure
+RestartSec=15
+StandardOutput=append:/home/kalshi/kalshibot/logs/shadow.log
+StandardError=append:/home/kalshi/kalshibot/logs/shadow.log
+
+[Install]
+WantedBy=multi-user.target

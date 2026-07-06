@@ -1,0 +1,17 @@
+[Unit]
+Description=KalshiBot Cloudflare Tunnel
+After=network-online.target kalshibot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kalshi
+WorkingDirectory=/home/kalshi/kalshibot
+ExecStart=/usr/local/bin/cloudflared tunnel --config /home/kalshi/kalshibot/deploy/cloudflared-kalshibot.yml run kalshibot
+Restart=always
+RestartSec=15
+StandardOutput=append:/home/kalshi/kalshibot/logs/tunnel.log
+StandardError=append:/home/kalshi/kalshibot/logs/tunnel.log
+
+[Install]
+WantedBy=multi-user.target
