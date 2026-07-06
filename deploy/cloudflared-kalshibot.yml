@@ -1,11 +1,11 @@
 # Cloudflare Tunnel config for KalshiBot — runs as its own tunnel/service,
-# fully separate from any other tunnel on this machine (which keep using
-# ~/.cloudflared/config.yml). Launched via:
+# separate from any other tunnel on the account. On the Hetzner host this is
+# launched by systemd (deploy/systemd/kalshibot-tunnel.service):
 #   cloudflared tunnel --config deploy/cloudflared-kalshibot.yml run kalshibot
-# (the launchd plist does this; see deploy/launchd/)
+# Credentials + cert.pem live under the kalshi user's ~/.cloudflared/.
 
 tunnel: kalshibot
-credentials-file: /Users/noahnaugle/.cloudflared/2a231536-a9a7-479f-90ab-4098465efc8f.json
+credentials-file: /home/kalshi/.cloudflared/2a231536-a9a7-479f-90ab-4098465efc8f.json
 
 ingress:
   # Dashboard + API + WebSocket. App-level bearer auth is mandatory on every
