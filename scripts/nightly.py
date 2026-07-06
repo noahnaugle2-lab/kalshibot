@@ -70,7 +70,6 @@ async def main() -> None:
     if "--no-ai" in sys.argv:
         lines.append("\n[5/5] Claude analysis skipped (--no-ai)")
     else:
-        from kalshibot.config import load_asset_configs
         from kalshibot.decision.proposals import run_nightly_analysis
 
         analysis, n_proposals = await run_nightly_analysis(

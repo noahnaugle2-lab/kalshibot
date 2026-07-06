@@ -115,7 +115,7 @@ async def check() -> None:
         from decimal import Decimal
         entry_after = Decimal(state["balance_after_entry"])
         credited = Decimal(str(balance_now)) - entry_after
-        payout_per_contract = credited / state["contracts"]
+        payout_per_contract = credited / Decimal(str(state["contracts"]))
         print(f"result: {market.result}")
         print(f"balance after entry : ${entry_after}")
         print(f"balance now         : ${balance_now}")

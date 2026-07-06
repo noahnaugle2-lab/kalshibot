@@ -257,10 +257,14 @@ class ShadowTrader(Observer):
                 proc = await asyncio.create_subprocess_exec(
                     ".venv/bin/python", "scripts/nightly.py",
                     stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
                 )
-                await asyncio.wait_for(proc.wait(), timeout=1800)
-                logger.info("nightly job finished (exit %s)", proc.returncode)
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
+                if proc.returncode == 0:
+                    logger.info("nightly job finished OK")
+                else:
+                    logger.error("nightly job FAILED (exit %s): %s",
+                                 proc.returncode, (stderr or b'').decode()[-800:])
                 self.notifier.emit("nightly_report", {"exit_code": proc.returncode})
             except Exception as exc:
                 logger.error("nightly job failed: %s", exc)
