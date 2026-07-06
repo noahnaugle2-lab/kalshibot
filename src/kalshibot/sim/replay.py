@@ -89,11 +89,16 @@ class ReplayEngine:
         latency_ms: float = DEFAULT_LATENCY_MS,
         payout_per_contract: float = DEFAULT_PAYOUT,
         seed: int = 0,
+        exit_margin: float | None = None,
     ) -> None:
         self.db = db
         self.latency_ms = latency_ms
         self.payout = payout_per_contract
         self.seed = seed
+        # std0-inspired early exit: once positioned, cut mid-window if the
+        # model flips against us — our side's model prob drops below
+        # (0.5 - exit_margin). None = hold to settlement (current behaviour).
+        self.exit_margin = exit_margin
 
     # ------------------------------------------------------------- tape load
 
@@ -236,8 +241,13 @@ class ReplayEngine:
         btc_ts, btc_mids = btc_books
         position = PositionState(market_ticker=tape.market.ticker)
         entry_fees = 0.0
+        orig_contracts = 0.0
         entry_regime: str | None = None
         book_ts_list = [b.ts for b in tape.books]
+        # accumulators for the portion cut early (exit_margin path)
+        exit_gross = 0.0
+        exit_fees = 0.0
+        exited = False
 
         for i, book_at in enumerate(tape.books):
             now = book_at.ts
@@ -267,8 +277,41 @@ class ReplayEngine:
                 btc_window=btc_spot_window if len(btc_spot_window) else None,
                 btc_implied_prob=btc_implied,
             )
+
+            # ---- already positioned: consider an early exit, never re-enter
+            if position.side is not None:
+                if (
+                    self.exit_margin is not None and not exited
+                    and position.contracts > 0 and snapshot.model_prob is not None
+                ):
+                    our_prob = (snapshot.model_prob if position.side == "yes"
+                                else 1 - snapshot.model_prob)
+                    if our_prob < 0.5 - self.exit_margin:
+                        exit_intent = (OrderIntent.SELL_YES if position.side == "yes"
+                                       else OrderIntent.SELL_NO)
+                        exec_idx = bisect_right(book_ts_list, now + self.latency_ms / 1000.0)
+                        exec_book = tape.books[min(exec_idx, len(tape.books) - 1)]
+                        sold = simulate_taker(exit_intent, 0.001, position.contracts,
+                                              exec_book.book)  # 0.001 limit = hit any bid
+                        if sold.filled > 0:
+                            frac = sold.filled / orig_contracts
+                            exit_gross += ((sold.avg_price or 0.0) - position.avg_price) * sold.filled
+                            exit_fees += entry_fees * frac + sold.total_fee
+                            fills_rows.append({
+                                "run_id": run_id, "ts": exec_book.ts, "asset": asset,
+                                "market_ticker": tape.market.ticker,
+                                "intent": exit_intent.value, "price": sold.avg_price,
+                                "contracts": sold.filled, "fee": sold.total_fee,
+                                "liquidity": "taker", "reason": f"early exit (model flip <{self.exit_margin})",
+                            })
+                            position = position.model_copy(
+                                update={"contracts": position.contracts - sold.filled})
+                            if position.contracts <= 1e-9:
+                                exited = True
+                continue
+
             signal = strategy.evaluate(snapshot, position)
-            if signal is None or position.side is not None:
+            if signal is None:
                 continue
 
             # execute against the first book at/after signal time + latency
@@ -288,6 +331,7 @@ class ReplayEngine:
                 entry_ts=exec_book.ts,
             )
             entry_fees = fill.total_fee
+            orig_contracts = fill.filled
             entry_regime = snapshot.regime.value
             fills_rows.append({
                 "run_id": run_id, "ts": exec_book.ts, "asset": asset,
@@ -299,17 +343,24 @@ class ReplayEngine:
 
         if position.side is None:
             return None
-        pnl_gross, pnl_net = settle_position(
-            position.side, position.contracts, position.avg_price,
-            entry_fees, tape.result, self.payout,
-        )
+
+        # settle whatever wasn't cut early (may be zero if fully exited)
+        settle_gross = settle_net = 0.0
+        if position.contracts > 1e-9:
+            frac = position.contracts / orig_contracts if orig_contracts else 1.0
+            settle_gross, settle_net = settle_position(
+                position.side, position.contracts, position.avg_price,
+                entry_fees * frac, tape.result, self.payout,
+            )
+        pnl_gross = round(exit_gross + settle_gross, 4)
+        pnl_net = round((exit_gross - exit_fees) + settle_net, 4)
         return {
             "run_id": run_id, "asset": asset, "market_ticker": tape.market.ticker,
-            "side": position.side, "contracts": position.contracts,
-            "avg_price": position.avg_price, "fees": entry_fees,
+            "side": position.side, "contracts": orig_contracts,
+            "avg_price": position.avg_price, "fees": round(entry_fees + exit_fees, 4),
             "entry_ts": position.entry_ts, "entry_regime": entry_regime,
             "result": tape.result, "payout_per_contract": self.payout,
-            "pnl_gross": round(pnl_gross, 4), "pnl_net": round(pnl_net, 4),
+            "pnl_gross": pnl_gross, "pnl_net": pnl_net,
         }
 
     def _btc_mid_timeline(self) -> tuple[list[float], list[float]]:

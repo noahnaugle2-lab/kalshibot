@@ -29,6 +29,8 @@ def main() -> None:
     parser.add_argument("--params", default="{}", help="JSON strategy params")
     parser.add_argument("--latency-ms", type=float, default=300.0)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--exit-margin", type=float, default=None,
+                        help="cut position mid-window if model flips against it")
     parser.add_argument("--db", type=Path, default=PROJECT_ROOT / "data" / "kalshibot.db")
     args = parser.parse_args()
 
@@ -37,7 +39,7 @@ def main() -> None:
         parser.error("pass --asset SYMBOL or --all")
 
     db = Database(args.db)
-    engine = ReplayEngine(db, latency_ms=args.latency_ms, seed=args.seed)
+    engine = ReplayEngine(db, latency_ms=args.latency_ms, seed=args.seed, exit_margin=args.exit_margin)
     params = json.loads(args.params)
 
     print(f"{'ASSET':<6} {'WINDOWS':>7} {'TRADES':>6} {'W-L':>7} "
