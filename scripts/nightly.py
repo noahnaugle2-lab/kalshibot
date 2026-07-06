@@ -27,6 +27,7 @@ from kalshibot.config import PROJECT_ROOT, load_asset_configs
 from kalshibot.evaluation.calibration import run_calibration
 from kalshibot.evaluation.scorecard import build_scorecards, persist_scorecards, render_ranking
 from kalshibot.persistence.db import Database
+from kalshibot.persistence.retention import run_retention
 from kalshibot.smartmoney.flow import mine_new_windows
 from kalshibot.smartmoney.polymarket import PolymarketClient, scan_asset
 
@@ -63,6 +64,11 @@ async def main() -> None:
     cards = build_scorecards(db, kind="shadow")
     persist_scorecards(db, cards)
     lines.append(f"[4/5] scorecards: {len(cards)} (asset, strategy) pairs ranked")
+
+    from kalshibot.config import Settings
+    ret = run_retention(db, retention_days=Settings().retention_days)
+    lines.append(f"[retention] archived {ret['total_archived']} aged tape rows "
+                 f"(> {ret['retention_days']}d), vacuumed={ret['vacuumed']}")
     lines.append("")
     ranking = render_ranking(cards)
     lines.append(ranking)

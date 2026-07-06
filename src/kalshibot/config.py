@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     decision_provider: str = Field(default="api", alias="DECISION_PROVIDER")
     decision_model: str = Field(default="claude-haiku-4-5", alias="DECISION_MODEL")
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    retention_days: int = Field(default=30, alias="RETENTION_DAYS")
 
 
 class AssetConfig(BaseModel):
