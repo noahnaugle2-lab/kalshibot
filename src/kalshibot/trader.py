@@ -120,15 +120,28 @@ class ShadowTrader(Observer):
 
     async def start(self) -> None:
         if self.ai_assets:
-            runner = ClaudeCLIRunner()
-            ok, detail = await runner.health_check()
-            if ok:
-                self.decision_engine = DecisionEngine(runner, self.db)
-                logger.info("AI mode on for %s (claude CLI: %s)",
-                            sorted(self.ai_assets), detail)
+            provider = self.settings.decision_provider.lower()
+            if provider == "api":
+                from kalshibot.decision.anthropic_api import AnthropicRunner
+                if not self.settings.anthropic_api_key:
+                    logger.error("AI mode REFUSED: DECISION_PROVIDER=api but "
+                                 "ANTHROPIC_API_KEY unset; falling back to baseline")
+                    self.ai_assets = set()
+                    runner = None
+                else:
+                    runner = AnthropicRunner(model=self.settings.decision_model,
+                                             api_key=self.settings.anthropic_api_key)
             else:
-                logger.error("AI mode REFUSED, falling back to baseline: %s", detail)
-                self.ai_assets = set()
+                runner = ClaudeCLIRunner(model=self.settings.decision_model)
+            if runner is not None:
+                ok, detail = await runner.health_check()
+                if ok:
+                    self.decision_engine = DecisionEngine(runner, self.db)
+                    logger.info("AI mode on for %s (%s: %s)",
+                                sorted(self.ai_assets), provider, detail)
+                else:
+                    logger.error("AI mode REFUSED, falling back to baseline: %s", detail)
+                    self.ai_assets = set()
 
         for asset, strategy in self.strategies.items():
             run_id = f"shadow-{asset}-{uuid.uuid4().hex[:8]}"

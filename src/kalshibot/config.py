@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     dashboard_token: str | None = Field(default=None, alias="DASHBOARD_TOKEN")
     dashboard_port: int = Field(default=8777, alias="DASHBOARD_PORT")
 
+    # Decision engine transport: "api" (direct Anthropic API, ~5x cheaper per
+    # call) or "cli" (Claude Code CLI, bills the local subscription).
+    decision_provider: str = Field(default="api", alias="DECISION_PROVIDER")
+    decision_model: str = Field(default="claude-haiku-4-5", alias="DECISION_MODEL")
+    anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+
 
 class AssetConfig(BaseModel):
     symbol: str
