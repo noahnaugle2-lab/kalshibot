@@ -442,10 +442,12 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
                     getter.cancel()
                     break  # disconnected (or client spoke; either way, bail)
                 await ws.send_json(getter.result())
-        except WebSocketDisconnect:
-            pass
+        except (WebSocketDisconnect, asyncio.CancelledError):
+            pass  # client gone or server cancelling us — either way, done
         finally:
             reader.cancel()
+            if reader.done() and not reader.cancelled():
+                reader.exception()  # retrieve, silencing 'never retrieved'
             trader.hub.unsubscribe(queue)
 
     return app
