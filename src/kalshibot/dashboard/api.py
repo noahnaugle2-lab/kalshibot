@@ -427,13 +427,25 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
             return
         await ws.accept()
         queue = trader.hub.subscribe()
+        # a reader task detects dead clients: browsers that vanish without a
+        # close handshake never raise from send() (the transport swallows it,
+        # flooding 'socket.send() raised exception' warnings forever) — but
+        # receive() does raise, so racing it against the queue exits cleanly
+        reader = asyncio.ensure_future(ws.receive_text())
         try:
             while True:
-                message = await queue.get()
-                await ws.send_json(message)
+                getter = asyncio.ensure_future(queue.get())
+                done, _ = await asyncio.wait(
+                    {getter, reader}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if reader in done:
+                    getter.cancel()
+                    break  # disconnected (or client spoke; either way, bail)
+                await ws.send_json(getter.result())
         except WebSocketDisconnect:
             pass
         finally:
+            reader.cancel()
             trader.hub.unsubscribe(queue)
 
     return app

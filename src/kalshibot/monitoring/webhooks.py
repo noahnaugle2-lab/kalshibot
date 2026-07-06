@@ -52,6 +52,7 @@ class WebhookNotifier:
             while True:
                 message = await self._queue.get()
                 delivered = False
+                permanent_drop = False
                 for attempt in range(MAX_ATTEMPTS):
                     try:
                         response = await client.post(url, json=message)
@@ -61,9 +62,8 @@ class WebhookNotifier:
                             break
                         if response.status_code == 404:
                             # no workflow registered for this webhook path —
-                            # permanent until the user builds one; don't retry
-                            logger.debug("webhook %s -> 404 (no n8n workflow "
-                                         "registered), dropping", message["event"])
+                            # permanent until the user builds one; drop QUIETLY
+                            permanent_drop = True
                             break
                         logger.warning("webhook %s -> HTTP %s (attempt %d)",
                                        message["event"], response.status_code,
@@ -74,5 +74,6 @@ class WebhookNotifier:
                     await asyncio.sleep(BASE_BACKOFF_S * 2**attempt)
                 if not delivered:
                     self.dropped += 1
-                    logger.error("webhook %s dropped after %d attempts",
-                                 message["event"], MAX_ATTEMPTS)
+                    if not permanent_drop:
+                        logger.error("webhook %s dropped after %d attempts",
+                                     message["event"], MAX_ATTEMPTS)
