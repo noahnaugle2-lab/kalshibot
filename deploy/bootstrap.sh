@@ -16,7 +16,7 @@ ARCH="$(dpkg --print-architecture)"   # arm64 or amd64
 
 echo "==> [1/8] packages"
 apt-get update -y
-apt-get install -y python3.11 python3.11-venv git ufw curl ca-certificates \
+apt-get install -y python3 python3-venv python3-pip git ufw curl ca-certificates \
     docker.io docker-compose-plugin
 
 echo "==> [2/8] user + firewall + NTP"
@@ -35,7 +35,7 @@ fi
 sudo -u kalshi mkdir -p "$APP_DIR/secrets" "$APP_DIR/data" "$APP_DIR/logs"
 
 echo "==> [4/8] python venv"
-sudo -u kalshi python3.11 -m venv "$APP_DIR/.venv"
+sudo -u kalshi python3 -m venv "$APP_DIR/.venv"
 sudo -u kalshi "$APP_DIR/.venv/bin/pip" install -q --upgrade pip
 sudo -u kalshi "$APP_DIR/.venv/bin/pip" install -q -e "$APP_DIR"
 
