@@ -17,7 +17,7 @@ ARCH="$(dpkg --print-architecture)"   # arm64 or amd64
 echo "==> [1/8] packages"
 apt-get update -y
 apt-get install -y python3 python3-venv python3-pip git ufw curl ca-certificates \
-    docker.io docker-compose-plugin
+    docker.io docker-compose-v2
 
 echo "==> [2/8] user + firewall + NTP"
 id kalshi &>/dev/null || adduser --disabled-password --gecos "" kalshi
