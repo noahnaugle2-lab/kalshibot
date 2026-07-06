@@ -221,6 +221,18 @@ class ReplayEngine:
         spot_window = TickWindow()
         spot_idx = 0
 
+        # BTC spot drives cross-asset strategies (btc_ret_30s/1m); replaying
+        # without it silently disables them — feed it exactly like live does
+        btc_rows: list[tuple[float, float, str]] = []
+        btc_primary = None
+        if asset != "BTC":
+            btc_rows = self._spot_ticks("BTC", window_start - 3600, tape.settlement_close_ts)
+            if btc_rows:
+                btc_primary = max({s for _, _, s in btc_rows},
+                                  key=lambda s: sum(1 for r in btc_rows if r[2] == s))
+        btc_spot_window = TickWindow()
+        btc_idx = 0
+
         btc_ts, btc_mids = btc_books
         position = PositionState(market_ticker=tape.market.ticker)
         entry_fees = 0.0
@@ -234,6 +246,11 @@ class ReplayEngine:
                 if source == primary:
                     spot_window.add(ts, price)
                 spot_idx += 1
+            while btc_idx < len(btc_rows) and btc_rows[btc_idx][0] <= now:
+                ts, price, source = btc_rows[btc_idx]
+                if source == btc_primary:
+                    btc_spot_window.add(ts, price)
+                btc_idx += 1
             if spot_window.last_price is None:
                 continue
 
@@ -247,7 +264,8 @@ class ReplayEngine:
                 now=now, asset=asset, market=tape.market,
                 book=book_at.book, book_ts=now,
                 spot_window=spot_window, spot_source=primary,
-                btc_window=None, btc_implied_prob=btc_implied,
+                btc_window=btc_spot_window if len(btc_spot_window) else None,
+                btc_implied_prob=btc_implied,
             )
             signal = strategy.evaluate(snapshot, position)
             if signal is None or position.side is not None:

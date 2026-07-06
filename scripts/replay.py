@@ -18,9 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from kalshibot.config import PROJECT_ROOT, TARGET_ASSETS
 from kalshibot.persistence.db import Database
 from kalshibot.sim.replay import ReplayEngine
-from kalshibot.strategies.base import NaiveEdgeTaker
-
-STRATEGIES = {"naive_edge_taker": NaiveEdgeTaker}
+from kalshibot.strategies.library import REGISTRY as STRATEGIES
 
 
 def main() -> None:
