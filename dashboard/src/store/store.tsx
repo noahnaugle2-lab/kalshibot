@@ -10,11 +10,14 @@ import {
 } from 'react';
 import {
   api,
+  authStatus,
   connectLiveSocket,
   getMockScenario,
   getToken,
   IS_MOCK,
   onUnauthorized,
+  passkeyLogin,
+  passkeyRegister,
   primeSpotHistory,
   setMockScenario,
   setToken,
@@ -34,6 +37,8 @@ export interface AppStore {
   // auth
   authed: boolean;
   signIn(token: string): void;
+  signInPasskey(): Promise<void>;
+  registerPasskey(token: string): Promise<void>;
   // theme
   theme: Theme;
   toggleTheme(): void;
@@ -118,6 +123,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ---- 401 handling: one client module owns the redirect ----
   useEffect(() => {
     onUnauthorized(() => setAuthed(false));
+  }, []);
+
+  // ---- cookie session check: a passkey login carries no localStorage token,
+  //      so confirm any existing session cookie with the server on mount ----
+  useEffect(() => {
+    if (IS_MOCK || authed) return;
+    let cancelled = false;
+    authStatus().then((s) => {
+      if (!cancelled && s.authed) {
+        setAuthed(true);
+        setEpoch((e) => e + 1);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const showToast = useCallback((msg: string, error = false) => {
@@ -209,6 +232,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [showToast],
   );
 
+  const signInPasskey = useCallback(async () => {
+    await passkeyLogin();
+    setAuthed(true);
+    setEpoch((e) => e + 1);
+    showToast('signed in with passkey');
+  }, [showToast]);
+
+  const registerPasskey = useCallback(
+    async (token: string) => {
+      await passkeyRegister(token);
+      setAuthed(true);
+      setEpoch((e) => e + 1);
+      showToast('passkey enrolled — Face ID / Touch ID ready');
+    },
+    [showToast],
+  );
+
   const toggleTheme = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), []);
 
   const setScenario = useCallback((s: Scenario) => {
@@ -285,6 +325,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const store: AppStore = {
     authed,
     signIn,
+    signInPasskey,
+    registerPasskey,
     theme,
     toggleTheme,
     scenario,

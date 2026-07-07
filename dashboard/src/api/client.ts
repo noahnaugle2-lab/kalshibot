@@ -36,6 +36,109 @@ export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+// ---- WebAuthn passkeys (Face ID / Touch ID) ----
+// Login issues an httpOnly session cookie the API/WS accept; no token stored.
+
+function b64urlToBuf(s: string): ArrayBuffer {
+  const pad = '='.repeat((4 - (s.length % 4)) % 4);
+  const bin = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+function bufToB64url(b: ArrayBuffer): string {
+  let bin = '';
+  for (const x of new Uint8Array(b)) bin += String.fromCharCode(x);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function passkeySupported(): boolean {
+  return typeof window !== 'undefined' && !!window.PublicKeyCredential && !!navigator.credentials;
+}
+
+export async function authStatus(): Promise<{ registered: boolean; authed: boolean }> {
+  try {
+    const res = await fetch('/auth/status', { credentials: 'same-origin' });
+    if (!res.ok) return { registered: false, authed: false };
+    return await res.json();
+  } catch {
+    return { registered: false, authed: false };
+  }
+}
+
+/** Sign in with an existing passkey (prompts Face ID / Touch ID). */
+export async function passkeyLogin(): Promise<void> {
+  const optRes = await fetch('/auth/login/options', { method: 'POST', credentials: 'same-origin' });
+  if (!optRes.ok) throw new ApiError(optRes.status, (await optRes.text()) || 'no passkey registered');
+  const o = await optRes.json();
+  const publicKey: any = {
+    ...o,
+    challenge: b64urlToBuf(o.challenge),
+    allowCredentials: (o.allowCredentials ?? []).map((c: any) => ({ ...c, id: b64urlToBuf(c.id) })),
+  };
+  const cred = (await navigator.credentials.get({ publicKey })) as PublicKeyCredential | null;
+  if (!cred) throw new ApiError(0, 'passkey cancelled');
+  const r = cred.response as AuthenticatorAssertionResponse;
+  const body = {
+    id: cred.id,
+    rawId: bufToB64url(cred.rawId),
+    type: cred.type,
+    response: {
+      clientDataJSON: bufToB64url(r.clientDataJSON),
+      authenticatorData: bufToB64url(r.authenticatorData),
+      signature: bufToB64url(r.signature),
+      userHandle: r.userHandle ? bufToB64url(r.userHandle) : null,
+    },
+    clientExtensionResults: cred.getClientExtensionResults(),
+  };
+  const res = await fetch('/auth/login/verify', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new ApiError(res.status, (await res.text()) || 'passkey login failed');
+}
+
+/** Enroll this device's passkey. Authorized by the bearer token (bootstrap). */
+export async function passkeyRegister(token: string): Promise<void> {
+  const auth = { Authorization: `Bearer ${token}` };
+  const optRes = await fetch('/auth/register/options', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: auth,
+  });
+  if (!optRes.ok) throw new ApiError(optRes.status, (await optRes.text()) || 'token rejected');
+  const o = await optRes.json();
+  const publicKey: any = {
+    ...o,
+    challenge: b64urlToBuf(o.challenge),
+    user: { ...o.user, id: b64urlToBuf(o.user.id) },
+    excludeCredentials: (o.excludeCredentials ?? []).map((c: any) => ({ ...c, id: b64urlToBuf(c.id) })),
+  };
+  const cred = (await navigator.credentials.create({ publicKey })) as PublicKeyCredential | null;
+  if (!cred) throw new ApiError(0, 'enrollment cancelled');
+  const r = cred.response as AuthenticatorAttestationResponse;
+  const body = {
+    id: cred.id,
+    rawId: bufToB64url(cred.rawId),
+    type: cred.type,
+    response: {
+      clientDataJSON: bufToB64url(r.clientDataJSON),
+      attestationObject: bufToB64url(r.attestationObject),
+      transports: typeof r.getTransports === 'function' ? r.getTransports() : [],
+    },
+    clientExtensionResults: cred.getClientExtensionResults(),
+  };
+  const res = await fetch('/auth/register/verify', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...auth },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new ApiError(res.status, (await res.text()) || 'enrollment failed');
+}
+
 let unauthorizedHandler: (() => void) | null = null;
 /** The app store registers here; ANY API 401 lands on the login screen. */
 export function onUnauthorized(cb: () => void): void {
