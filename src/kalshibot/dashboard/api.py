@@ -364,11 +364,23 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
             "SELECT SUM(p.pnl_net) net FROM sim_positions p "
             "JOIN sim_runs r ON r.run_id = p.run_id WHERE r.kind = 'shadow'",
         )
+        # rolling last-24h: settled shadow positions entered within 24h (a
+        # 15-min market settles ~15min after entry, so entry_ts is a fine proxy)
+        cutoff = time.time() - 86400
+        last24 = db.query(
+            "SELECT p.asset asset, SUM(p.pnl_net) net, COUNT(*) n "
+            "FROM sim_positions p JOIN sim_runs r ON r.run_id = p.run_id "
+            "WHERE r.kind = 'shadow' AND p.result IS NOT NULL AND p.entry_ts >= ? "
+            "GROUP BY p.asset", (cutoff,),
+        )
         return {
             "date": day,
             "today_by_asset": {r["asset"]: {"net": round(r["net"] or 0, 2),
                                             "trades": r["trades"]} for r in rows},
             "today_net": round(sum(r["net"] or 0 for r in rows), 2),
+            "last_24h_by_asset": {r["asset"]: {"net": round(r["net"] or 0, 2),
+                                               "positions": r["n"]} for r in last24},
+            "last_24h_net": round(sum(r["net"] or 0 for r in last24), 2),
             "campaign_net": round(total[0]["net"] or 0, 2) if total else 0.0,
         }
 
