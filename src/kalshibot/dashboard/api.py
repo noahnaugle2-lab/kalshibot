@@ -26,7 +26,10 @@ from typing import Any
 from fastapi import (
     Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect,
 )
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from kalshibot.dashboard import webauthn_auth as wa
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +65,9 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
     token = trader.settings.dashboard_token or secrets.token_urlsafe(24)
     if not trader.settings.dashboard_token:
         logger.warning("DASHBOARD_TOKEN unset — generated for this session: %s", token)
+    session_secret = trader.settings.dashboard_session_secret or token
+    rp_id = trader.settings.dashboard_rp_id
+    origin = trader.settings.dashboard_origin
     bearer = HTTPBearer(auto_error=False)
     failed_auth: dict[str, list[float]] = {}  # client ip -> failure timestamps
 
@@ -71,10 +77,20 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
             request.client.host if request.client else "unknown"
         )
 
+    def _session_ok(cookies) -> bool:
+        return wa.verify(session_secret, cookies.get("wa_session")) is not None
+
+    def _auth_cookie(resp, name: str, value: str, max_age: int, path: str) -> None:
+        resp.set_cookie(name, value, max_age=max_age, httponly=True,
+                        secure=True, samesite="lax", path=path)
+
     def require_auth(
         request: Request,
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     ) -> None:
+        # a valid passkey session cookie authorizes without the bearer token
+        if _session_ok(request.cookies):
+            return
         ip = _client_ip(request)
         now = time.time()
         recent = [t for t in failed_auth.get(ip, []) if now - t < 60]
@@ -90,6 +106,77 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
         failed_auth.pop(ip, None)
 
     db = trader.db
+
+    # ------------------------------------------------------- passkey auth (WebAuthn)
+
+    @app.get("/auth/status")
+    def auth_status(request: Request) -> dict:
+        return {
+            "registered": wa.has_credentials(db),
+            "authed": _session_ok(request.cookies),
+        }
+
+    @app.post("/auth/register/options", dependencies=[Depends(require_auth)])
+    def auth_register_options() -> JSONResponse:
+        options_json, challenge = wa.registration_options(db, rp_id)
+        resp = JSONResponse(content=json.loads(options_json))
+        _auth_cookie(resp, "wa_chal",
+                     wa.sign(session_secret, {"c": challenge, "t": "reg"}, wa.CHALLENGE_TTL_S),
+                     wa.CHALLENGE_TTL_S, "/auth")
+        return resp
+
+    @app.post("/auth/register/verify", dependencies=[Depends(require_auth)])
+    async def auth_register_verify(request: Request) -> JSONResponse:
+        body = await request.json()
+        data = wa.verify(session_secret, request.cookies.get("wa_chal"))
+        if not data or data.get("t") != "reg":
+            raise HTTPException(status_code=400, detail="challenge missing or expired")
+        try:
+            wa.verify_registration(db, body, data["c"], rp_id, origin,
+                                   body.get("label", "passkey"))
+        except Exception as exc:  # noqa: BLE001 — surface the reason to the client
+            raise HTTPException(status_code=400, detail=f"registration failed: {exc}")
+        resp = JSONResponse({"ok": True})  # enrolling also logs you in
+        resp.delete_cookie("wa_chal", path="/auth")
+        _auth_cookie(resp, "wa_session",
+                     wa.sign(session_secret, {"sub": "dashboard"}, wa.SESSION_TTL_S),
+                     wa.SESSION_TTL_S, "/")
+        return resp
+
+    @app.post("/auth/login/options")
+    def auth_login_options() -> JSONResponse:
+        try:
+            options_json, challenge = wa.authentication_options(db, rp_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="no passkeys registered")
+        resp = JSONResponse(content=json.loads(options_json))
+        _auth_cookie(resp, "wa_chal",
+                     wa.sign(session_secret, {"c": challenge, "t": "auth"}, wa.CHALLENGE_TTL_S),
+                     wa.CHALLENGE_TTL_S, "/auth")
+        return resp
+
+    @app.post("/auth/login/verify")
+    async def auth_login_verify(request: Request) -> JSONResponse:
+        body = await request.json()
+        data = wa.verify(session_secret, request.cookies.get("wa_chal"))
+        if not data or data.get("t") != "auth":
+            raise HTTPException(status_code=400, detail="challenge missing or expired")
+        try:
+            wa.verify_authentication(db, body, data["c"], rp_id, origin)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=401, detail=f"authentication failed: {exc}")
+        resp = JSONResponse({"ok": True})
+        resp.delete_cookie("wa_chal", path="/auth")
+        _auth_cookie(resp, "wa_session",
+                     wa.sign(session_secret, {"sub": "dashboard"}, wa.SESSION_TTL_S),
+                     wa.SESSION_TTL_S, "/")
+        return resp
+
+    @app.post("/auth/logout")
+    def auth_logout() -> JSONResponse:
+        resp = JSONResponse({"ok": True})
+        resp.delete_cookie("wa_session", path="/")
+        return resp
 
     # ------------------------------------------------------------- status
 
@@ -434,7 +521,9 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
 
     @app.websocket("/ws/live")
     async def ws_live(ws: WebSocket, token_param: str = Query("", alias="token")):
-        if not secrets.compare_digest(token_param, token):
+        # passkey session cookie OR the bearer token (?token=) authorizes the WS
+        cookie_ok = wa.verify(session_secret, ws.cookies.get("wa_session")) is not None
+        if not cookie_ok and not secrets.compare_digest(token_param, token):
             await ws.close(code=4401)
             return
         await ws.accept()

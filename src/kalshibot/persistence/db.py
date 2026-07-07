@@ -337,6 +337,15 @@ CREATE TABLE IF NOT EXISTS smart_wallets (
     qualified INTEGER DEFAULT 0,  -- n >= 100 AND ci_low > 0.5 AND pnl > 0
     updated_ts REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+    credential_id TEXT PRIMARY KEY,   -- base64url of the raw credential id
+    public_key TEXT NOT NULL,         -- base64url COSE public key
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    transports TEXT DEFAULT '',       -- JSON list, informational
+    label TEXT DEFAULT '',            -- human label ("Noah's iPhone")
+    created_ts REAL NOT NULL
+);
 """
 
 

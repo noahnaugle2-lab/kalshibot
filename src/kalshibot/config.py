@@ -43,6 +43,16 @@ class Settings(BaseSettings):
 
     dashboard_token: str | None = Field(default=None, alias="DASHBOARD_TOKEN")
     dashboard_port: int = Field(default=8777, alias="DASHBOARD_PORT")
+    # Passkey (WebAuthn / Face ID / Touch ID) auth. session_secret signs the
+    # login-session + challenge cookies; rp_id/origin must match the public host
+    # the browser sees (the passkey is cryptographically bound to them).
+    dashboard_session_secret: str | None = Field(
+        default=None, alias="DASHBOARD_SESSION_SECRET"
+    )
+    dashboard_rp_id: str = Field(default="kalshi.naugle.us", alias="DASHBOARD_RP_ID")
+    dashboard_origin: str = Field(
+        default="https://kalshi.naugle.us", alias="DASHBOARD_ORIGIN"
+    )
 
     # Decision engine transport: "api" (direct Anthropic API, ~5x cheaper per
     # call) or "cli" (Claude Code CLI, bills the local subscription).
