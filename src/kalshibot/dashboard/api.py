@@ -107,6 +107,19 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
 
     db = trader.db
 
+    def _active_assets() -> list[str]:
+        """Assets currently TRADING (enabled and not paused) — the live book.
+
+        Data-source/benched/disabled assets (BTC paused as a feed, ETH/HYPE/…
+        disabled) are excluded so campaign/settled figures reflect only what
+        the bot actually trades. Driven by config, so it auto-tracks the roster.
+        """
+        from kalshibot.config import load_asset_configs
+
+        return sorted(
+            s for s, c in load_asset_configs().items() if c.enabled and not c.paused
+        )
+
     # ------------------------------------------------------- passkey auth (WebAuthn)
 
     @app.get("/auth/status")
@@ -282,7 +295,9 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
 
     @app.get("/api/equity", dependencies=[Depends(require_auth)])
     def equity(assets: str | None = None, basis: str = "net") -> dict:
-        wanted = assets.split(",") if assets else list(trader.recorders)
+        # default to the active trading book so the campaign curve/total isn't
+        # dragged by benched/data-source assets; explicit ?assets= overrides.
+        wanted = assets.split(",") if assets else _active_assets()
         col = "pnl_net" if basis == "net" else "pnl_gross"
         series = []
         for symbol in wanted:
@@ -443,25 +458,31 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
     @app.get("/n8n/pnl", dependencies=[Depends(require_n8n_auth)])
     def n8n_pnl() -> dict:
         day = time.strftime("%Y-%m-%d", time.gmtime())
+        # all figures cover only the ACTIVE trading book (SOL/XRP/DOGE) — benched
+        # and data-source assets' settled history is excluded from the numbers.
+        active = _active_assets()
+        ph = ",".join("?" * len(active)) or "''"
         rows = db.query(
-            "SELECT asset, SUM(pnl_net) net, SUM(trades) trades FROM daily_pnl "
-            "WHERE date = ? GROUP BY asset", (day,),
+            f"SELECT asset, SUM(pnl_net) net, SUM(trades) trades FROM daily_pnl "
+            f"WHERE date = ? AND asset IN ({ph}) GROUP BY asset", (day, *active),
         )
         total = db.query(
-            "SELECT SUM(p.pnl_net) net FROM sim_positions p "
-            "JOIN sim_runs r ON r.run_id = p.run_id WHERE r.kind = 'shadow'",
+            f"SELECT SUM(p.pnl_net) net FROM sim_positions p "
+            f"JOIN sim_runs r ON r.run_id = p.run_id "
+            f"WHERE r.kind = 'shadow' AND p.asset IN ({ph})", tuple(active),
         )
         # rolling last-24h: settled shadow positions entered within 24h (a
         # 15-min market settles ~15min after entry, so entry_ts is a fine proxy)
         cutoff = time.time() - 86400
         last24 = db.query(
-            "SELECT p.asset asset, SUM(p.pnl_net) net, COUNT(*) n "
-            "FROM sim_positions p JOIN sim_runs r ON r.run_id = p.run_id "
-            "WHERE r.kind = 'shadow' AND p.result IS NOT NULL AND p.entry_ts >= ? "
-            "GROUP BY p.asset", (cutoff,),
+            f"SELECT p.asset asset, SUM(p.pnl_net) net, COUNT(*) n "
+            f"FROM sim_positions p JOIN sim_runs r ON r.run_id = p.run_id "
+            f"WHERE r.kind = 'shadow' AND p.result IS NOT NULL AND p.entry_ts >= ? "
+            f"AND p.asset IN ({ph}) GROUP BY p.asset", (cutoff, *active),
         )
         return {
             "date": day,
+            "active_assets": active,
             "today_by_asset": {r["asset"]: {"net": round(r["net"] or 0, 2),
                                             "trades": r["trades"]} for r in rows},
             "today_net": round(sum(r["net"] or 0 for r in rows), 2),
@@ -557,12 +578,18 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
 # ------------------------------------------------------------ payload glue
 
 def _status_payload(trader) -> dict:
+    from kalshibot.config import load_asset_configs
+
     ticks = trader.router.tick_counts if trader.router else {}
     uptime = max(1.0, time.time() - trader._session_start)
     db_path = trader.db.path
     size_mb = db_path.stat().st_size / 1e6 if db_path.exists() else 0
+    active_assets = sorted(
+        s for s, c in load_asset_configs().items() if c.enabled and not c.paused
+    )
     return {
         "mode": trader.settings.mode.value,
+        "active_assets": active_assets,
         "started_at": trader._session_start,
         "clock_offset_ms": getattr(trader, "clock_offset_ms", None),
         "kill_switch_engaged": trader.risk.kill_switch,
