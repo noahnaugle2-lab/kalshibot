@@ -641,6 +641,11 @@ async def serve(trader, host: str = "127.0.0.1", port: int = 8777) -> None:
         attempt = 0
         while True:
             probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # match uvicorn's real listener (asyncio sets SO_REUSEADDR): bind
+            # succeeds as soon as no live listener holds the port, ignoring
+            # TIME_WAIT connections from the predecessor — so a restart rebinds
+            # in seconds instead of waiting out the ~60s TIME_WAIT.
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 probe.bind((host, port))
                 probe.close()
