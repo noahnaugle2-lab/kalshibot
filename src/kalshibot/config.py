@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     healthchecks_ping_url: str | None = Field(default=None, alias="HEALTHCHECKS_PING_URL")
     n8n_webhook_base_url: str | None = Field(default=None, alias="N8N_WEBHOOK_BASE_URL")
     n8n_api_bearer_token: str | None = Field(default=None, alias="N8N_API_BEARER_TOKEN")
+    # Telegram (nightly portfolio-break alerts; hourly PnL still runs via n8n)
+    telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
+    telegram_chat_id: str | None = Field(default=None, alias="TELEGRAM_CHAT_ID")
 
     dashboard_token: str | None = Field(default=None, alias="DASHBOARD_TOKEN")
     dashboard_port: int = Field(default=8777, alias="DASHBOARD_PORT")

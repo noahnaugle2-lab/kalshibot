@@ -73,6 +73,17 @@ async def main() -> None:
     if pf.get("flags"):
         lines.append("⚠ PORTFOLIO STRUCTURE FLAGS: " + " | ".join(pf["flags"]))
     lines.append(render_portfolio_report(pf))
+    # once-a-day Telegram portfolio check: silent when stable, alert on a break
+    if pf.get("flags"):
+        from kalshibot.monitoring.telegram import send_telegram
+
+        alert = (
+            "⚠️ KalshiBot — portfolio check\n"
+            + "\n".join("• " + f for f in pf["flags"])
+            + f"\n\nanchor {pf.get('top_asset')} · best config: "
+            + f"{pf.get('best_selection')} · {pf.get('n_positions')} settled pos"
+        )
+        send_telegram(alert)
 
     from kalshibot.config import Settings
     ret = run_retention(db, retention_days=Settings().retention_days)
