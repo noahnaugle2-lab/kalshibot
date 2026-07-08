@@ -346,6 +346,19 @@ CREATE TABLE IF NOT EXISTS webauthn_credentials (
     label TEXT DEFAULT '',            -- human label ("Noah's iPhone")
     created_ts REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS portfolio_reports (
+    id INTEGER PRIMARY KEY,
+    run_ts REAL NOT NULL,
+    n_positions INTEGER,
+    top_asset TEXT,               -- best-Sharpe active asset (the anchor)
+    best_portfolio TEXT,          -- winning config in the selection sim
+    all3_net REAL,
+    all3_sharpe REAL,
+    flags TEXT,                   -- JSON list of structure-break flags
+    detail TEXT                   -- JSON full walk-forward result
+);
+CREATE INDEX IF NOT EXISTS idx_portfolio_reports_ts ON portfolio_reports(run_ts);
 """
 
 

@@ -65,6 +65,15 @@ async def main() -> None:
     persist_scorecards(db, cards)
     lines.append(f"[4/5] scorecards: {len(cards)} (asset, strategy) pairs ranked")
 
+    from kalshibot.evaluation.portfolio import (
+        persist_portfolio_report, render_portfolio_report, walk_forward_analysis,
+    )
+    pf = walk_forward_analysis(db)
+    persist_portfolio_report(db, pf)
+    if pf.get("flags"):
+        lines.append("⚠ PORTFOLIO STRUCTURE FLAGS: " + " | ".join(pf["flags"]))
+    lines.append(render_portfolio_report(pf))
+
     from kalshibot.config import Settings
     ret = run_retention(db, retention_days=Settings().retention_days)
     lines.append(f"[retention] archived {ret['total_archived']} aged tape rows "
