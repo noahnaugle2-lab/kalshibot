@@ -92,6 +92,10 @@ assets:
     spot_symbol_coinbase: XRP-USD
     strategy: cross_asset_lead_lag
     strategy_params: {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10}
+    smart_money_weight: 0.25   # enabled 2026-07-11: reconstructed signal highly
+                               # predictive on XRP (82% vs 26% win agree/disagree,
+                               # 195/199 coverage). Start at nudge; validate veto
+                               # via causal walk-forward before escalating.
   DOGE:
     spot_symbol_binance: DOGEUSDT
     spot_symbol_coinbase: DOGE-USD
