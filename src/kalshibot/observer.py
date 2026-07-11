@@ -48,6 +48,7 @@ class Observer:
         self.recorders: dict[str, AssetTapeRecorder] = {}
         self._last_spot_write: dict[tuple[str, str], float] = {}
         self._stop = asyncio.Event()
+        self._crashed: str | None = None  # name of a task that died unexpectedly
 
     # ------------------------------------------------------------- lifecycle
 
@@ -105,6 +106,12 @@ class Observer:
                 *[(f"extra_{i}", t) for i, t in enumerate(self.extra_tasks())],
             ]
         ]
+        # Supervise: a daemon task that dies (exception or unexpected return)
+        # must never leave the process half-alive and pinging healthy. The
+        # callback records it, unwinds, and start() exits non-zero so systemd
+        # restarts the whole process — state rebuilds from the DB on restart.
+        for task in tasks:
+            task.add_done_callback(self._on_task_done)
         await self._stop.wait()
         logger.info("shutting down...")
         for task in tasks:
@@ -113,6 +120,30 @@ class Observer:
         self.db.close()
         await self.client.close()
         logger.info("shutdown complete")
+        if self._crashed is not None:
+            try:
+                from kalshibot.monitoring.telegram import send_telegram
+                send_telegram(
+                    f"🛑 KalshiBot: task {self._crashed!r} crashed — process "
+                    "exiting for a clean systemd restart"
+                )
+            except Exception:  # noqa: BLE001 — alerting must not block exit
+                pass
+            raise SystemExit(1)
+
+    def _on_task_done(self, task: asyncio.Task) -> None:
+        """Done-callback: turn a silent daemon death into a loud restart."""
+        if task.cancelled() or self._stop.is_set():
+            return  # cancelled during our own shutdown — expected
+        exc = task.exception()
+        name = task.get_name()
+        if exc is None:
+            logger.critical("supervised task %r returned unexpectedly — restarting", name)
+        else:
+            logger.critical("supervised task %r died: %s — restarting process",
+                            name, exc, exc_info=exc)
+        self._crashed = name
+        self.request_stop()
 
     def request_stop(self) -> None:
         self._stop.set()
@@ -175,9 +206,16 @@ class Observer:
                     )
                     snap = self.enrich_snapshot(asset, snap)
                     self.db.add("signals", snap.to_row())
+                except Exception:
+                    logger.exception("%s: feature computation failed", asset)
+                    continue
+                # trading path is separate: a strategy/risk/execution bug must
+                # not be mislabeled as "feature computation failed", and it gets
+                # a full traceback (was a bare %s message before)
+                try:
                     self.on_snapshot(asset, snap)
-                except Exception as exc:
-                    logger.error("%s: feature computation failed: %s", asset, exc)
+                except Exception:
+                    logger.exception("%s: trading step failed", asset)
 
     # ------------------------------------------------------------ background
 

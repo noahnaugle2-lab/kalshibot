@@ -11,6 +11,7 @@ import type {
 import { fmtBrier, fmtUtcClock, maybe, money, pct, signedCents, CENT, MINUS } from '../../lib/format';
 import { ASSET_COLOR, confidencePillStyle, recommendationPillStyle } from '../../lib/palette';
 import { EmptyState } from '../../components/EmptyState';
+import { FetchError } from '../../components/FetchError';
 import { MicroLabel, SegButton } from '../../components/SegButton';
 import { useApp } from '../../store/store';
 import { RowExpansion } from './RowExpansion';
@@ -50,6 +51,8 @@ export function LeaderboardView() {
   const [openRow, setOpenRow] = useState<Asset | null>(null);
   const [data, setData] = useState<LeaderboardResponse | null>(null);
   const [without, setWithout] = useState<LeaderboardResponse | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   // The regime filter and smart-money with/without re-query the API.
   useEffect(() => {
@@ -57,20 +60,24 @@ export function LeaderboardView() {
     const primary = sm === 'both' ? 'with' : sm;
     api
       .leaderboard({ basis, smart_money: primary, regime })
-      .then((r) => !cancelled && setData(r))
-      .catch(() => {});
+      .then((r) => {
+        if (cancelled) return;
+        setData(r);
+        setLoadError(false);
+      })
+      .catch(() => !cancelled && setLoadError(true));
     if (sm === 'both') {
       api
         .leaderboard({ basis, smart_money: 'without', regime })
         .then((r) => !cancelled && setWithout(r))
-        .catch(() => {});
+        .catch(() => !cancelled && setLoadError(true));
     } else {
       setWithout(null);
     }
     return () => {
       cancelled = true;
     };
-  }, [basis, sm, regime, epoch]);
+  }, [basis, sm, regime, epoch, retry]);
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -115,6 +122,7 @@ export function LeaderboardView() {
 
   return (
     <div className="px-5 py-[18px] max-w-[1440px] mx-auto">
+      {loadError && <FetchError label="leaderboard" onRetry={() => setRetry((n) => n + 1)} />}
       <div className="flex items-center gap-4 mb-3.5 flex-wrap">
         <span className="text-[13px] font-extrabold tracking-[0.06em] text-fg">LEADERBOARD</span>
         <span className="flex-1" />

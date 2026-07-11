@@ -374,10 +374,15 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
 
     @app.get("/api/config", dependencies=[Depends(require_auth)])
     def get_config() -> dict:
+        from kalshibot.strategies.library import REGISTRY
         return {
             "assets": {a: c.model_dump() for a, c in trader.asset_configs.items()},
             "risk": trader.risk.config.model_dump(),
             "blackouts": [b.model_dump() for b in trader.risk.blackouts],
+            # valid strategy keys straight from the backend registry so the
+            # config dropdown can never drift out of sync with what build_strategy
+            # accepts (a mismatched key 500s the PUT)
+            "strategies": sorted(REGISTRY),
         }
 
     @app.put("/api/config/assets/{symbol}", dependencies=[Depends(require_auth)])
@@ -389,15 +394,23 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
                    "max_position_contracts", "smart_money_weight", "paused"}
         updates = {k: v for k, v in body.items() if k in allowed}
         updated = cfg.model_copy(update=updates)
+        # Validate-then-commit: build the strategy FIRST so an unknown key
+        # returns a clean 400 instead of a 500 that has already corrupted the
+        # in-memory config (asset_configs was mutated before build in the old
+        # order). Only assign state once construction succeeds.
+        new_strategy = None
+        if ("strategy" in updates or "strategy_params" in updates) and updated.strategy:
+            from kalshibot.strategies.library import build_strategy
+            try:
+                new_strategy = build_strategy(updated.strategy, updated.strategy_params)
+            except KeyError as exc:
+                raise HTTPException(400, f"invalid strategy: {exc}") from exc
         trader.asset_configs[symbol] = updated
+        if new_strategy is not None:
+            trader.strategies[symbol] = new_strategy
         if "paused" in updates:
             (trader.risk.paused_assets.add if updates["paused"]
              else trader.risk.paused_assets.discard)(symbol)
-        if "strategy" in updates or "strategy_params" in updates:
-            from kalshibot.strategies.library import build_strategy
-            if updated.strategy:
-                trader.strategies[symbol] = build_strategy(
-                    updated.strategy, updated.strategy_params)
         db.write_now("config_overrides", {
             "ts": time.time(), "scope": f"asset:{symbol}",
             "changes": json.dumps(updates),
@@ -531,13 +544,22 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
         def spa_root() -> FileResponse:
             return FileResponse(dist / "index.html")
 
+        dist_root = dist.resolve()
+
         @app.get("/{path:path}", include_in_schema=False)
         def spa_fallback(path: str) -> FileResponse:
             if path.startswith(("api/", "ws/", "n8n/", "assets/")):
                 raise HTTPException(404)
-            file = dist / path
-            if file.is_file():
-                return FileResponse(file)
+            # Containment check: never serve a file outside dist. `path` can
+            # carry `..` (incl. url-encoded %2f./%2e%2e) that resolves above
+            # the SPA root — without this guard `/..%2f..%2f.env` reads secrets.
+            try:
+                target = (dist / path).resolve()
+                inside = target == dist_root or target.is_relative_to(dist_root)
+            except (OSError, RuntimeError, ValueError):
+                inside = False
+            if inside and target.is_file():
+                return FileResponse(target)
             return FileResponse(dist / "index.html")  # client-side routes
 
     @app.websocket("/ws/live")

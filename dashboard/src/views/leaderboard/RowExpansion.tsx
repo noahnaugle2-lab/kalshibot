@@ -57,7 +57,7 @@ export function RowExpansion({
       .catch(() => {});
 
     api
-      .trades({ asset: row.asset, limit: 300 })
+      .trades({ asset: row.asset, limit: 200 })
       .then((r) => {
         if (cancelled) return;
         const blocks: Array<{ name: string; wins: number; losses: number; n: number }> = [

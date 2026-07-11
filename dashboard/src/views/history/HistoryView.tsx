@@ -6,6 +6,7 @@ import type { Asset, EquityResponse, LeaderboardBasis, Trade } from '../../api/t
 import { fmtUtcDate, fmtUtcHm, fmtUtcTime, money, CENT } from '../../lib/format';
 import { ASSETS, ASSET_COLOR, regimeFg } from '../../lib/palette';
 import { EmptyState } from '../../components/EmptyState';
+import { FetchError } from '../../components/FetchError';
 import { MicroLabel, SegButton } from '../../components/SegButton';
 import { useApp } from '../../store/store';
 
@@ -35,6 +36,8 @@ export function HistoryView() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [cursor, setCursor] = useState<string>('');
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   // deep link from leaderboard (→ HISTORY · SYM)
   useEffect(() => {
@@ -47,12 +50,16 @@ export function HistoryView() {
     let cancelled = false;
     api
       .equity({ basis })
-      .then((r) => !cancelled && setEquity(r))
-      .catch(() => {});
+      .then((r) => {
+        if (cancelled) return;
+        setEquity(r);
+        setLoadError(false);
+      })
+      .catch(() => !cancelled && setLoadError(true));
     return () => {
       cancelled = true;
     };
-  }, [basis, epoch]);
+  }, [basis, epoch, retry]);
 
   // trade log is server-paginated per the contract (asset param + cursor)
   useEffect(() => {
@@ -65,12 +72,13 @@ export function HistoryView() {
         setTrades(r.trades);
         setCursor(r.cursor);
         setLoaded(true);
+        setLoadError(false);
       })
-      .catch(() => {});
+      .catch(() => !cancelled && setLoadError(true));
     return () => {
       cancelled = true;
     };
-  }, [assetFilter, epoch]);
+  }, [assetFilter, epoch, retry]);
 
   const loadMore = () => {
     api
@@ -144,10 +152,39 @@ export function HistoryView() {
         labels.push(fmtUtcDate(t));
       }
     }
-    return { series, legend, zeroY: y(0).toFixed(1), labels };
+    return { series, legend, zeroY: y(0).toFixed(1), labels, lo, hi };
   }, [equity, cutoff, hidden, nowSec, range, live]);
 
   const dayOne = loaded && allTrades.length === 0 && (!equity || equity.series.every((s) => s.points.length < 2));
+
+  // shared hover resolver so a finger tap/drag (pointer events) scrubs the
+  // chart on the owner's iPhone, not just a desktop mouse
+  const resolveHover = (clientX: number, clientY: number, rect: DOMRect) => {
+    if (!chart) return;
+    const mx = ((clientX - rect.left) / rect.width) * 800;
+    const my = ((clientY - rect.top) / rect.height) * 240;
+    let best: typeof hover = null;
+    let bestDist = 26; // viewBox-units grab radius
+    for (const s of chart.series) {
+      let nearest = s.scaled[0];
+      let dx = Infinity;
+      for (const p of s.scaled) {
+        const d = Math.abs(p.cx - mx);
+        if (d < dx) { dx = d; nearest = p; }
+      }
+      const dist = Math.abs(nearest.cy - my);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = {
+          asset: s.asset, ts: nearest.ts, pnl: nearest.pnl,
+          cx: nearest.cx, cy: nearest.cy,
+          px: ((clientX - rect.left) / rect.width) * 100,
+          py: ((clientY - rect.top) / rect.height) * 100,
+        };
+      }
+    }
+    setHover(best);
+  };
 
   return (
     <div className="px-5 py-[18px] max-w-[1440px] mx-auto flex flex-col gap-4">
@@ -173,6 +210,8 @@ export function HistoryView() {
         figures include Kalshi fees; flip the basis to compare.
       </div>
 
+      {loadError && <FetchError label="history" onRetry={() => setRetry((n) => n + 1)} />}
+
       {dayOne ? (
         <EmptyState
           title="NO SETTLED TRADES YET"
@@ -197,41 +236,32 @@ export function HistoryView() {
               ))}
             </div>
             <div className="relative">
+            {/* y-axis dollar labels (HTML overlay, not SVG <text> — the chart
+                uses preserveAspectRatio="none" which would squash SVG text) */}
+            {chart && (
+              <div className="absolute left-0 top-0 bottom-5 w-full pointer-events-none text-[8px] text-ghost z-[1]">
+                <span className="absolute left-0 top-0">{money(chart.hi)}</span>
+                <span className="absolute left-0" style={{ top: `${(Number(chart.zeroY) / 240) * 100}%` }}>
+                  $0
+                </span>
+                <span className="absolute left-0 bottom-0">{money(chart.lo)}</span>
+              </div>
+            )}
             <svg
               width="100%"
               height="260"
               viewBox="0 0 800 240"
               preserveAspectRatio="none"
-              className="block"
+              className="block touch-none"
               onMouseLeave={() => setHover(null)}
-              onMouseMove={(e) => {
-                if (!chart) return;
-                const rect = e.currentTarget.getBoundingClientRect();
-                const mx = ((e.clientX - rect.left) / rect.width) * 800;
-                const my = ((e.clientY - rect.top) / rect.height) * 240;
-                let best: typeof hover = null;
-                let bestDist = 26; // viewBox-units grab radius
-                for (const s of chart.series) {
-                  // nearest point by x (points are time-ordered)
-                  let nearest = s.scaled[0];
-                  let dx = Infinity;
-                  for (const p of s.scaled) {
-                    const d = Math.abs(p.cx - mx);
-                    if (d < dx) { dx = d; nearest = p; }
-                  }
-                  const dist = Math.abs(nearest.cy - my);
-                  if (dist < bestDist) {
-                    bestDist = dist;
-                    best = {
-                      asset: s.asset, ts: nearest.ts, pnl: nearest.pnl,
-                      cx: nearest.cx, cy: nearest.cy,
-                      px: ((e.clientX - rect.left) / rect.width) * 100,
-                      py: ((e.clientY - rect.top) / rect.height) * 100,
-                    };
-                  }
+              onMouseMove={(e) => resolveHover(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect())}
+              onPointerDown={(e) => resolveHover(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect())}
+              onPointerMove={(e) => {
+                if (e.pointerType === 'touch') {
+                  resolveHover(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
                 }
-                setHover(best);
               }}
+              onPointerLeave={() => setHover(null)}
             >
               <line
                 x1="0"

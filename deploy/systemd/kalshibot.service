@@ -2,6 +2,12 @@
 Description=KalshiBot shadow trader
 After=network-online.target docker.service
 Wants=network-online.target
+# If a supervised task crashes the process (SystemExit 1) repeatedly, stop
+# restarting after 5 failures in 5 min so a genuinely broken deploy doesn't
+# crash-loop — the process staying down stops the Healthchecks.io pings, which
+# escalates to an external alert (the dead man's switch).
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple

@@ -1,11 +1,22 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
+import { FetchError } from '../../components/FetchError';
 import type { Asset, AssetConfig, Blackout } from '../../api/types';
 import { fmtUtcDate, fmtUtcHm } from '../../lib/format';
 import { ASSETS, ASSET_COLOR } from '../../lib/palette';
 import { useApp } from '../../store/store';
 
-const STRATEGIES = ['latency_momentum_v1', 'mean_revert_v2', 'vol_breakout_v1', 'baseline_hold'];
+// Correct backend registry keys (kalshibot.strategies.library.REGISTRY). Used
+// as a fallback; the live list comes from GET /api/config so it can't drift.
+// The old placeholder list matched nothing, so the select couldn't show the
+// active strategy and saving any option 400'd/500'd the PUT.
+const FALLBACK_STRATEGIES = [
+  'cross_asset_lead_lag',
+  'latency_momentum',
+  'mean_reversion_extremes',
+  'naive_edge_taker',
+  'thin_book_maker',
+];
 
 const inputCls =
   'bg-panel2 border border-linestrong text-fg text-[11px] px-2 py-[5px] rounded w-full box-border outline-none focus:border-indigo';
@@ -19,6 +30,9 @@ export function ConfigView() {
   const [saved, setSaved] = useState<Partial<Record<Asset, AssetConfig>>>({});
   const [drafts, setDrafts] = useState<Partial<Record<Asset, AssetConfig>>>({});
   const [blackouts, setBlackouts] = useState<Blackout[]>([]);
+  const [strategies, setStrategies] = useState<string[]>(FALLBACK_STRATEGIES);
+  const [loadError, setLoadError] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,12 +43,14 @@ export function ConfigView() {
         setSaved(r.assets);
         setDrafts(structuredClone(r.assets));
         setBlackouts(r.blackouts);
+        if (r.strategies && r.strategies.length) setStrategies(r.strategies);
+        setLoadError(false);
       })
-      .catch(() => {});
+      .catch(() => !cancelled && setLoadError(true));
     return () => {
       cancelled = true;
     };
-  }, [epoch]);
+  }, [epoch, retry]);
 
   const updateDraft = (sym: Asset, patch: Partial<AssetConfig>) => {
     setDrafts((prev) => {
@@ -83,6 +99,8 @@ export function ConfigView() {
         (SHADOW / DEMO / LIVE) is read-only here; it changes only via server config.
       </div>
 
+      {loadError && <FetchError label="config" onRetry={() => setRetry((n) => n + 1)} />}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
         {ASSETS.map((sym) => {
           const c = drafts[sym];
@@ -116,7 +134,13 @@ export function ConfigView() {
                   onChange={(e) => updateDraft(sym, { strategy: e.target.value })}
                   className="bg-panel2 border border-linestrong text-bright text-[10px] px-2 py-1.5 rounded w-full outline-none cursor-pointer focus:border-indigo"
                 >
-                  {STRATEGIES.map((s) => (
+                  {!c.strategy && <option value="">— none —</option>}
+                  {/* keep the active strategy visible even if the registry list
+                      somehow doesn't include it, so the select never blanks */}
+                  {c.strategy && !strategies.includes(c.strategy) && (
+                    <option value={c.strategy}>{c.strategy}</option>
+                  )}
+                  {strategies.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>

@@ -102,7 +102,7 @@ export function Header() {
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                'text-[10px] font-bold tracking-[0.1em] px-3 py-1.5 rounded whitespace-nowrap transition-colors ' +
+                'text-[10px] font-bold tracking-[0.1em] px-3 py-2.5 md:py-1.5 rounded whitespace-nowrap transition-colors flex items-center ' +
                 (isActive ? 'text-fg bg-[#171A2B] [.light_&]:bg-panel2' : 'text-faint hover:text-fg')
               }
             >
@@ -207,6 +207,49 @@ export function Header() {
             </button>
           )}
         </div>
+      </div>
+
+      {/* ---- mobile PnL strip: the "is the bot making money?" headline, shown
+           below the desktop chip's md breakpoint so it exists on the phone the
+           owner monitors from. The all-assets (incl. benched) figure is a
+           visible column here, not a hover-only tooltip. ---- */}
+      <div className="flex md:hidden items-center gap-4 px-5 py-2 border-t border-line bg-panel2 text-[11px]">
+        <span className="flex items-center gap-1.5">
+          <span className="text-[8px] tracking-[0.1em] text-faint">24H</span>
+          <span
+            className={
+              'font-extrabold ' +
+              (zeroDay ? 'text-faint' : (pnl?.day ?? 0) >= 0 ? 'text-green' : 'text-red')
+            }
+          >
+            {zeroDay ? '$0.00' : money(pnl!.day)}
+          </span>
+        </span>
+        <span className="w-px h-3 bg-linestrong" />
+        <span className="flex items-center gap-1.5">
+          <span className="text-[8px] tracking-[0.1em] text-faint">
+            NET{pausedAssets.size > 0 ? ' EX-BENCH' : ''}
+          </span>
+          <span
+            className={
+              'font-extrabold ' +
+              (zeroDay ? 'text-faint' : (pnl?.total ?? 0) >= 0 ? 'text-green' : 'text-red')
+            }
+          >
+            {zeroDay ? '$0.00' : money(pnl!.total)}
+          </span>
+        </span>
+        {pausedAssets.size > 0 && pnl && (
+          <>
+            <span className="w-px h-3 bg-linestrong" />
+            <span className="flex items-center gap-1.5">
+              <span className="text-[8px] tracking-[0.1em] text-faint">ALL</span>
+              <span className={'font-bold ' + (pnl.allTotal >= 0 ? 'text-green' : 'text-red')}>
+                {money(pnl.allTotal)}
+              </span>
+            </span>
+          </>
+        )}
       </div>
 
       {/* ---- mode banner (non-negotiable, always visible) ---- */}

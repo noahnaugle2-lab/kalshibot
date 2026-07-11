@@ -63,7 +63,10 @@ def tape_db(tmp_path) -> Database:
 
 
 def test_replay_executes_and_settles(tape_db):
-    engine = ReplayEngine(tape_db, latency_ms=300, payout_per_contract=0.99, seed=7)
+    # apply_risk=False isolates the fill simulator (this test asserts IOC
+    # partial-fill mechanics, not the risk layer's depth cap)
+    engine = ReplayEngine(tape_db, latency_ms=300, payout_per_contract=0.99,
+                          seed=7, apply_risk=False)
     result = engine.run("TEST", BuyFirstMidSnapshot())
 
     assert result.windows == 1 and result.trades == 1 and result.wins == 1
@@ -95,3 +98,16 @@ def test_replay_no_settlement_no_window(tape_db):
     engine = ReplayEngine(tape_db)
     result = engine.run("MISSING", BuyFirstMidSnapshot(), persist=False)
     assert result.windows == 0 and result.trades == 0
+
+
+def test_replay_applies_risk_gate_by_default(tape_db):
+    # faithful-to-live: the RiskManager's depth cap (0.25 x opposing depth of 5)
+    # downsizes the 10-contract signal to 1 — replay must gate like production,
+    # not fill the raw strategy size (the bug this fixes).
+    engine = ReplayEngine(tape_db, latency_ms=300, payout_per_contract=0.99, seed=7)
+    result = engine.run("TEST", BuyFirstMidSnapshot(), persist=False)
+    assert result.trades == 1
+    fills = ReplayEngine(tape_db, latency_ms=300, payout_per_contract=0.99, seed=7)
+    fills.run("TEST", BuyFirstMidSnapshot())
+    row = tape_db.query("SELECT * FROM sim_fills ORDER BY id DESC LIMIT 1")[0]
+    assert row["contracts"] == 1  # depth-capped, not the 5 an ungated fill would take

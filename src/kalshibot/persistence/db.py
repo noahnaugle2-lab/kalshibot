@@ -359,6 +359,13 @@ CREATE TABLE IF NOT EXISTS portfolio_reports (
     detail TEXT                   -- JSON full walk-forward result
 );
 CREATE INDEX IF NOT EXISTS idx_portfolio_reports_ts ON portfolio_reports(run_ts);
+-- ts-leading indexes for the retention job: without these, its DELETEs
+-- full-scan multi-GB tables while holding the write lock, starving the live
+-- writer past its busy_timeout and (previously) killing the flusher.
+CREATE INDEX IF NOT EXISTS idx_trade_tape_ts ON trade_tape(ts);
+CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(ts);
+CREATE INDEX IF NOT EXISTS idx_book_snapshots_ts ON book_snapshots(ts);
+CREATE INDEX IF NOT EXISTS idx_spot_ticks_ts ON spot_ticks(ts);
 """
 
 
@@ -376,6 +383,7 @@ class Database:
         self._queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
         self._flush_task: asyncio.Task | None = None
         self._closed = False
+        self._flush_failures = 0
         self._write_lock = threading.Lock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -408,6 +416,13 @@ class Database:
             self._conn.execute(sql, params)
             self._conn.commit()
 
+    def execute_write(self, sql: str, params: tuple = ()) -> int:
+        """Synchronous write that returns rows affected (for batched deletes)."""
+        with self._write_lock:
+            cur = self._conn.execute(sql, params)
+            self._conn.commit()
+            return cur.rowcount
+
     def _upsert(self, table: str, row: dict[str, Any]) -> None:
         cols = ", ".join(row)
         placeholders = ", ".join("?" for _ in row)
@@ -423,24 +438,61 @@ class Database:
                     self._upsert(table, row)
                 except sqlite3.IntegrityError:
                     pass  # duplicate trade_id etc. — dedupe is the constraint's job
-            self._conn.commit()
+                except (sqlite3.InterfaceError, sqlite3.ProgrammingError,
+                        ValueError, OverflowError) as exc:
+                    # one unbindable row must not poison the whole batch (or,
+                    # via a killed flusher, halt all recording)
+                    logger.warning("dropping unbindable %s row: %s", table, exc)
+            self._conn.commit()  # may raise OperationalError (locked/disk) — caller retries
+
+    # cap held rows during a sustained write outage so memory can't grow
+    # without bound; if we ever hit this the dead-man's switch is already firing
+    MAX_BACKLOG = 200_000
 
     async def run_flusher(self, interval: float = 1.0) -> None:
-        """Background task: drain the queue and commit once per interval."""
+        """Background task: drain the queue and commit once per interval.
+
+        A transient write failure (SQLite 'database is locked' during the
+        nightly retention/VACUUM, or a full disk) must NOT kill this task —
+        that would silently stop all recording while the process stays alive.
+        On failure the batch is held and retried with backoff; the loop lives.
+        """
+        backlog: list[tuple[str, dict[str, Any]]] = []
         try:
-            while not self._closed or not self._queue.empty():
+            while not self._closed or not self._queue.empty() or backlog:
                 await asyncio.sleep(interval)
-                batch: list[tuple[str, dict[str, Any]]] = []
+                batch = backlog
+                backlog = []
                 while not self._queue.empty():
                     batch.append(self._queue.get_nowait())
-                if batch:
+                if not batch:
+                    continue
+                try:
                     await asyncio.to_thread(self._flush_batch, batch)
+                except sqlite3.OperationalError as exc:
+                    backlog = batch[-self.MAX_BACKLOG:]
+                    dropped = len(batch) - len(backlog)
+                    if self._flush_failures % 10 == 0:
+                        logger.error("db flush failed (holding %d rows%s): %s",
+                                     len(backlog),
+                                     f", DROPPED {dropped} oldest" if dropped else "",
+                                     exc)
+                    self._flush_failures += 1
+                    await asyncio.sleep(min(30.0, interval * 2 ** min(self._flush_failures, 5)))
+                else:
+                    if self._flush_failures:
+                        logger.info("db flush recovered after %d failed attempts",
+                                    self._flush_failures)
+                    self._flush_failures = 0
         except asyncio.CancelledError:
-            batch = []
+            batch = backlog
             while not self._queue.empty():
                 batch.append(self._queue.get_nowait())
             if batch:
-                self._flush_batch(batch)
+                try:
+                    self._flush_batch(batch)
+                except Exception as exc:  # noqa: BLE001 — best-effort final drain
+                    logger.error("final flush lost %d rows: %s", len(batch), exc)
             raise
 
     # -------------------------------------------------------------- reads
