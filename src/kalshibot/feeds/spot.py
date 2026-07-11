@@ -31,6 +31,11 @@ BINANCE_US_WS = "wss://stream.binance.us:9443/stream"
 
 STALE_AFTER_SECONDS = 5.0
 RECONNECT_MAX_BACKOFF = 30.0
+# Force a reconnect if a live socket goes silent (wedged stream or a rejected
+# subscription that leaves the connection open): protocol pings keep the socket
+# alive, so `async for` never ends and the venue dies silently otherwise.
+COINBASE_SILENCE_S = 30.0   # heartbeat channel means real data every ~1s
+BINANCE_SILENCE_S = 90.0    # trade stream can be genuinely sparse on quiet assets
 
 
 @dataclass
@@ -74,8 +79,18 @@ class CoinbaseFeed:
                 "channels": ["ticker", "heartbeat"],
             }))
             logger.info("coinbase subscribed: %s", ", ".join(self.products))
-            async for raw in ws:
+            while True:
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=COINBASE_SILENCE_S)
+                except asyncio.TimeoutError as exc:
+                    raise ConnectionError(
+                        f"coinbase silent >{COINBASE_SILENCE_S:.0f}s — reconnecting"
+                    ) from exc
                 msg = json.loads(raw)
+                if msg.get("type") == "error":
+                    # a rejected subscription (e.g. bad product id) — fatal, so
+                    # the reconnect loop retries instead of sitting open forever
+                    raise ConnectionError(f"coinbase error: {msg.get('message')}")
                 if msg.get("type") != "ticker":
                     continue
                 asset = self.products.get(msg.get("product_id", ""))
@@ -107,8 +122,17 @@ class BinanceUSFeed:
             f"{BINANCE_US_WS}?streams={streams}", ping_interval=20
         ) as ws:
             logger.info("binance_us subscribed: %s", ", ".join(self.symbols))
-            async for raw in ws:
-                data = json.loads(raw).get("data") or {}
+            while True:
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=BINANCE_SILENCE_S)
+                except asyncio.TimeoutError as exc:
+                    raise ConnectionError(
+                        f"binance_us silent >{BINANCE_SILENCE_S:.0f}s — reconnecting"
+                    ) from exc
+                payload = json.loads(raw)
+                if "error" in payload:
+                    raise ConnectionError(f"binance_us error: {payload.get('error')}")
+                data = payload.get("data") or {}
                 asset = self.symbols.get(data.get("s", ""))
                 if asset is None or "p" not in data:
                     continue

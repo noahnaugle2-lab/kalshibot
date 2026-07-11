@@ -1,0 +1,22 @@
+# KalshiBot log rotation. The systemd units append to plain files
+# (StandardOutput=append:...logs/*.log), which grow without bound on the 80GB
+# VPS. Install this so the logs are rotated, compressed, and pruned.
+#
+#   sudo cp deploy/logrotate/kalshibot /etc/logrotate.d/kalshibot
+#   sudo chown root:root /etc/logrotate.d/kalshibot && sudo chmod 644 /etc/logrotate.d/kalshibot
+#   sudo logrotate --debug /etc/logrotate.d/kalshibot   # dry-run to verify
+#
+# copytruncate is required: the trader/tunnel hold the file open in append mode,
+# so we truncate in place rather than rename (no process signal needed).
+/home/kalshi/kalshibot/logs/shadow.log
+/home/kalshi/kalshibot/logs/tunnel.log {
+    daily
+    rotate 14
+    size 50M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su kalshi kalshi
+}

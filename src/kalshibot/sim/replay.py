@@ -38,13 +38,13 @@ from kalshibot.features.engine import compute_snapshot
 from kalshibot.features.window import TickWindow
 from kalshibot.kalshi.models import Market, Orderbook, OrderbookLevel, OrderIntent
 from kalshibot.persistence.db import Database, dump_json
-from kalshibot.sim.fills import settle_position, simulate_taker
+from kalshibot.sim.fills import DEFAULT_PAYOUT, settle_position, simulate_taker
 from kalshibot.strategies.base import PositionState, Strategy
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_LATENCY_MS = 300.0
-DEFAULT_PAYOUT = 0.99  # per project spec ("paid as 99 cents"); verify empirically
+# DEFAULT_PAYOUT imported from sim.fills — single source of truth, shared with live
 
 
 @dataclass
@@ -90,6 +90,8 @@ class ReplayEngine:
         payout_per_contract: float = DEFAULT_PAYOUT,
         seed: int = 0,
         exit_margin: float | None = None,
+        apply_risk: bool = True,
+        risk=None,
     ) -> None:
         self.db = db
         self.latency_ms = latency_ms
@@ -99,6 +101,21 @@ class ReplayEngine:
         # model flips against us — our side's model prob drops below
         # (0.5 - exit_margin). None = hold to settlement (current behaviour).
         self.exit_margin = exit_margin
+        # Faithful-to-live gating: the deterministic RiskManager (position/
+        # notional/depth caps, settlement blackout, daily-loss halt) gates every
+        # live order, so replay applies it too — otherwise replay validates a
+        # different execution path than production. Toggle off for raw
+        # strategy-isolation studies. Smart money is deliberately NOT modeled
+        # here: it needs a causal reconstruction of Polymarket wallet state at
+        # each decision time (validate it via the causal walk-forward instead).
+        self.apply_risk = apply_risk
+        if risk is not None:
+            self.risk = risk
+        elif apply_risk:
+            from kalshibot.config import load_risk
+            self.risk = load_risk()
+        else:
+            self.risk = None
 
     # ------------------------------------------------------------- tape load
 
@@ -175,6 +192,11 @@ class ReplayEngine:
             if outcome is None:
                 continue
             positions_rows.append(outcome)
+            # feed settled PnL to the risk tracker so its daily-loss halt gates
+            # later same-day windows exactly as it would live (windows are in
+            # close_ts order, so this accumulates correctly across the day)
+            if self.risk is not None:
+                self.risk.record_pnl(asset, outcome["pnl_net"], now=tape.settlement_close_ts)
             trades += 1
             pnl_gross_total += outcome["pnl_gross"]
             pnl_net_total += outcome["pnl_net"]
@@ -313,6 +335,23 @@ class ReplayEngine:
             signal = strategy.evaluate(snapshot, position)
             if signal is None:
                 continue
+
+            # deterministic risk gate — same authority as live (position/
+            # notional/depth caps, settlement blackout, daily-loss halt)
+            if self.risk is not None:
+                if signal.intent is OrderIntent.BUY_YES:
+                    depth = snapshot.depth_no_within_2c
+                elif signal.intent is OrderIntent.BUY_NO:
+                    depth = snapshot.depth_yes_within_2c
+                else:
+                    depth = None
+                verdict = self.risk.check(
+                    asset, signal, snapshot, position,
+                    resting_depth_at_price=depth, now=now,
+                )
+                if not verdict.approved:
+                    continue
+                signal.contracts = verdict.contracts
 
             # execute against the first book at/after signal time + latency
             exec_idx = bisect_right(book_ts_list, now + self.latency_ms / 1000.0)

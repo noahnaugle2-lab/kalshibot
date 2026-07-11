@@ -21,6 +21,7 @@ from kalshibot.persistence.db import Database
 from kalshibot.smartmoney.flow import PATTERNS, load_window_tape
 
 VETO_THRESHOLD = 0.5  # weight x strength beyond this on disagreement -> veto
+LAYER_A_PRIOR_N = 20  # pseudo-count: shrinks small-sample patterns toward no-edge
 
 
 @dataclass
@@ -55,6 +56,10 @@ def layer_a_lean(
         if lean is None:
             continue
         edge = max(0.0, (row["hit_rate_30d"] or 0.5) - 0.5)
+        # shrink toward zero for thin samples: a 2-window 100% pattern must not
+        # yield the same edge as a 200-window one (was: n_30d ignored entirely)
+        n = row["n_30d"] or 0
+        edge *= n / (n + LAYER_A_PRIOR_N)
         score += edge if lean == "UP" else -edge
     if abs(score) < 1e-9:
         return None

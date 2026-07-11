@@ -37,8 +37,34 @@ ARCHIVABLE_TABLES = ("trade_tape", "signals", "book_snapshots", "spot_ticks")
 DEFAULT_RETENTION_DAYS = 30
 
 
+DELETE_BATCH = 5000  # rows per delete statement — keeps each write-lock hold short
+
+
 def _utc_day(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+
+
+def _utc_midnight(ts: float) -> float:
+    dt = datetime.fromtimestamp(ts, tz=timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return dt.timestamp()
+
+
+def _delete_range_batched(db: Database, table: str, lo: float, hi: float) -> int:
+    """Delete rows in [lo, hi) in small batches so the live writer isn't
+    starved. Uses a rowid subquery (portable — no SQLITE_ENABLE_..._LIMIT
+    needed) over the ts index, so each statement is a short indexed delete."""
+    total = 0
+    while True:
+        n = db.execute_write(
+            f"DELETE FROM {table} WHERE rowid IN "
+            f"(SELECT rowid FROM {table} WHERE ts >= ? AND ts < ? ORDER BY ts LIMIT ?)",
+            (lo, hi, DELETE_BATCH),
+        )
+        total += n
+        if n < DELETE_BATCH:
+            return total
 
 
 def _columns(db: Database, table: str) -> list[str]:
@@ -54,50 +80,50 @@ def archive_table(
     if "ts" not in cols:
         return {"table": table, "archived": 0, "days": 0, "skipped": "no ts column"}
 
-    # distinct UTC days present below the cutoff — bounds memory to one day
-    day_rows = db.query(
-        f"SELECT DISTINCT strftime('%Y-%m-%d', ts, 'unixepoch') AS d "
-        f"FROM {table} WHERE ts < ? ORDER BY d",
-        (cutoff_ts,),
-    )
-    days = [r["d"] for r in day_rows if r["d"]]
-    if not days:
+    # earliest row below the cutoff — an indexed MIN(ts) (no full scan)
+    lo_row = db.query(f"SELECT MIN(ts) AS lo FROM {table} WHERE ts < ?", (cutoff_ts,))
+    lo = lo_row[0]["lo"] if lo_row else None
+    if lo is None:
         return {"table": table, "archived": 0, "days": 0}
 
     out_dir = archive_dir / table
     out_dir.mkdir(parents=True, exist_ok=True)
     total = 0
+    n_days = 0
     col_list = ", ".join(cols)
-    for day in days:
+    # walk UTC-day buckets from the earliest row up to the cutoff, selecting and
+    # deleting by ts RANGE so the ts index is used and strftime never touches a
+    # row in the WHERE clause (the old query full-scanned every table per day)
+    day_start = _utc_midnight(lo)
+    while day_start < cutoff_ts:
+        day_end = day_start + 86400
+        hi = min(day_end, cutoff_ts)
+        day = _utc_day(day_start)
         rows = db.query(
-            f"SELECT {col_list} FROM {table} "
-            f"WHERE ts < ? AND strftime('%Y-%m-%d', ts, 'unixepoch') = ?",
-            (cutoff_ts, day),
+            f"SELECT {col_list} FROM {table} WHERE ts >= ? AND ts < ? ORDER BY ts",
+            (day_start, hi),
         )
-        if not rows:
-            continue
-        columns = {c: [r[c] for r in rows] for c in cols}
-        arrow = pa.table(columns)
-        final = out_dir / f"{day}.parquet"
-        tmp = out_dir / f".{day}.parquet.tmp"
-        if final.exists():
-            # merge with what's already archived for this day (re-run safety)
-            existing = pq.read_table(final)
-            arrow = pa.concat_tables([existing, arrow.cast(existing.schema)])
-        pq.write_table(arrow, tmp, compression="zstd")
-        tmp.replace(final)  # atomic: rows are safe on disk before we delete
-        # delete this day's rows immediately — chunks the delete per day so the
-        # live trader's writes interleave instead of blocking on one huge lock
-        db.write_now_sql(
-            f"DELETE FROM {table} WHERE ts < ? "
-            f"AND strftime('%Y-%m-%d', ts, 'unixepoch') = ?",
-            (cutoff_ts, day),
-        )
-        total += len(rows)
+        if rows:
+            columns = {c: [r[c] for r in rows] for c in cols}
+            arrow = pa.table(columns)
+            final = out_dir / f"{day}.parquet"
+            tmp = out_dir / f".{day}.parquet.tmp"
+            if final.exists():
+                # merge with what's already archived for this day (re-run safety)
+                existing = pq.read_table(final)
+                arrow = pa.concat_tables([existing, arrow.cast(existing.schema)])
+            pq.write_table(arrow, tmp, compression="zstd")
+            tmp.replace(final)  # atomic: rows are safe on disk before we delete
+            # batched, indexed delete: short lock holds so the live writer's
+            # once-per-second flush never blocks past its busy_timeout
+            _delete_range_batched(db, table, day_start, hi)
+            total += len(rows)
+            n_days += 1
+        day_start = day_end
 
     logger.info("retention: archived %d %s rows across %d day(s) -> %s",
-                total, table, len(days), out_dir)
-    return {"table": table, "archived": total, "days": len(days)}
+                total, table, n_days, out_dir)
+    return {"table": table, "archived": total, "days": n_days}
 
 
 def run_retention(

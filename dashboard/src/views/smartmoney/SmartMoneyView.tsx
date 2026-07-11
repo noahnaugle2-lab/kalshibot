@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import type { SmartMoneyResponse } from '../../api/types';
 import { pct } from '../../lib/format';
 import { ASSETS, ASSET_COLOR } from '../../lib/palette';
+import { FetchError } from '../../components/FetchError';
 import { useApp } from '../../store/store';
 
 function LeanGlyph({ lean, strength }: { lean: 'UP' | 'DOWN' | null; strength?: number }) {
@@ -28,17 +29,23 @@ function LeanGlyph({ lean, strength }: { lean: 'UP' | 'DOWN' | null; strength?: 
 export function SmartMoneyView() {
   const { epoch, showToast } = useApp();
   const [data, setData] = useState<SmartMoneyResponse | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     api
       .smartmoney()
-      .then((r) => !cancelled && setData(r))
-      .catch(() => {});
+      .then((r) => {
+        if (cancelled) return;
+        setData(r);
+        setLoadError(false);
+      })
+      .catch(() => !cancelled && setLoadError(true));
     return () => {
       cancelled = true;
     };
-  }, [epoch]);
+  }, [epoch, retry]);
 
   const copyAddress = (addr: string) => {
     if (navigator.clipboard) void navigator.clipboard.writeText(addr);
@@ -55,6 +62,8 @@ export function SmartMoneyView() {
         Polymarket wallets (Layer B) — merged into one directional lean per asset. Strategies weight this lean
         from 0 to 1 in Config; patterns that stop working get benched automatically.
       </div>
+
+      {loadError && <FetchError label="smart money" onRetry={() => setRetry((n) => n + 1)} />}
 
       {/* merged leans strip */}
       <div className="bg-panel border border-line rounded-md px-3.5 py-3 flex gap-2.5 flex-wrap items-center">

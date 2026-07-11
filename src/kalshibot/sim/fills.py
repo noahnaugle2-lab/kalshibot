@@ -30,6 +30,13 @@ from kalshibot.kalshi.models import Orderbook, OrderbookLevel, OrderIntent
 
 DEFAULT_QUEUE_FRACTION = 0.25
 
+# A winning Kalshi contract settles at $1.00 (fees are charged on the trade, not
+# at settlement). Single source of truth — trader.py and the replay engine both
+# import this so they can never drift. Was 0.99 (a conservative placeholder);
+# scripts/demo_payout_probe.py measures it empirically on the demo exchange.
+# Each sim_positions row records the payout it used, so history stays comparable.
+DEFAULT_PAYOUT = 1.0
+
 
 @dataclass
 class SimFill:

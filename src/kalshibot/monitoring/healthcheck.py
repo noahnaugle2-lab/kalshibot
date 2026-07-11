@@ -30,23 +30,32 @@ def health_report(trader, now: float | None = None) -> tuple[bool, list[str]]:
     now = now if now is not None else time.time()
     problems: list[str] = []
 
+    # Watch the ACTIVELY-TRADED book, not a quorum of the full recorder fleet:
+    # paused record-only assets (BTC/DOGE) must not keep the quorum "healthy"
+    # while both traded assets (SOL/XRP) are dark. Require every traded asset
+    # fresh; if the whole book is paused, fall back to watching the full fleet.
+    paused = getattr(getattr(trader, "risk", None), "paused_assets", None) or set()
+    active = [a for a in trader.recorders if a not in paused]
+    watch = active or list(trader.recorders)
+
     if trader.router is not None:
-        fresh_spot = sum(
-            1 for asset in trader.recorders
-            if (age := trader.router.window(asset, now)[0].age_seconds(now)) is not None
-            and age < SPOT_STALE_S
-        )
-        if fresh_spot < max(1, len(trader.recorders) // 2):
-            problems.append(f"spot feeds stale ({fresh_spot}/{len(trader.recorders)} fresh)")
+        stale_spot = [
+            a for a in watch
+            if (age := trader.router.window(a, now)[0].age_seconds(now)) is None
+            or age >= SPOT_STALE_S
+        ]
+        if stale_spot:
+            problems.append(f"spot feed stale for traded {sorted(stale_spot)}")
     else:
         problems.append("spot router not started")
 
-    fresh_books = sum(
-        1 for r in trader.recorders.values()
-        if r.latest_book_ts is not None and now - r.latest_book_ts < BOOK_STALE_S
-    )
-    if trader.recorders and fresh_books < max(1, len(trader.recorders) // 2):
-        problems.append(f"kalshi books stale ({fresh_books}/{len(trader.recorders)} fresh)")
+    stale_books = [
+        a for a in watch
+        if trader.recorders[a].latest_book_ts is None
+        or now - trader.recorders[a].latest_book_ts >= BOOK_STALE_S
+    ]
+    if watch and stale_books:
+        problems.append(f"kalshi book stale for traded {sorted(stale_books)}")
 
     snapshot_ages = [
         now - snap.ts for snap in trader.latest_snapshots.values()

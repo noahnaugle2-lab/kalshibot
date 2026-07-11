@@ -623,10 +623,21 @@ export function getSmartMoney(): SmartMoneyResponse {
 export interface FullConfig {
   assets: Record<Asset, AssetConfig>;
   blackouts: Blackout[];
+  strategies?: string[];
 }
 
 export function getConfig(): FullConfig {
-  return { assets: world.config, blackouts: world.blackouts };
+  return {
+    assets: world.config,
+    blackouts: world.blackouts,
+    strategies: [
+      'cross_asset_lead_lag',
+      'latency_momentum',
+      'mean_reversion_extremes',
+      'naive_edge_taker',
+      'thin_book_maker',
+    ],
+  };
 }
 
 export function putAssetConfig(sym: Asset, cfg: Partial<AssetConfig>): AssetConfig {

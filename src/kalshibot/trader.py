@@ -34,7 +34,9 @@ from kalshibot.kalshi.models import OrderIntent
 from kalshibot.observer import Observer
 from kalshibot.orders.risk import RiskManager, Verdict
 from kalshibot.persistence.db import dump_json
-from kalshibot.sim.fills import TapeTrade, settle_position, simulate_maker, simulate_taker
+from kalshibot.sim.fills import (
+    DEFAULT_PAYOUT, TapeTrade, settle_position, simulate_maker, simulate_taker,
+)
 from kalshibot.smartmoney import signal as sm_signal
 from kalshibot.smartmoney.polymarket import PolymarketClient, live_lean
 from kalshibot.strategies.base import PositionState, Strategy, StrategySignal
@@ -44,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 SMART_MONEY_REFRESH_S = 60.0
 SETTLE_CHECK_S = 60.0
-DEFAULT_PAYOUT = 0.99
+# DEFAULT_PAYOUT is imported from sim.fills (single source of truth)
 
 
 @dataclass
@@ -99,6 +101,7 @@ class ShadowTrader(Observer):
         self.notifier = WebhookNotifier(self.settings.n8n_webhook_base_url)
         self.deadman = DeadMansSwitch(self.settings.healthchecks_ping_url)
         self._loss_limit_notified: set[str] = set()
+        self._loss_limit_day = time.strftime("%Y-%m-%d", time.gmtime())
         self._pm_client = PolymarketClient()
         self._session_start = time.time()
 
@@ -159,6 +162,7 @@ class ShadowTrader(Observer):
                 "windows": None, "summary": None,
             })
         self._recover_positions()
+        self._recover_resting()
         self._recover_daily_pnl()
         # safety: lead-lag strategies are inert without BTC's spot feed
         needs_btc = any(
@@ -236,6 +240,41 @@ class ShadowTrader(Observer):
             logger.info("recovered open position: %s %s %.0f @ %.3f (%s)",
                         f["asset"], side.upper(), f["contracts"], f["price"],
                         f["market_ticker"])
+
+    def _recover_resting(self) -> None:
+        """Rebuild working maker orders after a restart, and expire the rows of
+        any whose market already closed — otherwise those sim_orders rows stay
+        'resting' forever and the in-memory order is silently lost."""
+        rows = self.db.query(
+            "SELECT o.*, m.close_ts FROM sim_orders o "
+            "LEFT JOIN markets m ON m.ticker = o.market_ticker "
+            "WHERE o.execution = 'maker' AND o.status = 'resting' "
+            "ORDER BY o.ts DESC",
+        )
+        now = time.time()
+        seen: set[str] = set()
+        for r in rows:
+            ticker = r["market_ticker"]
+            settled = self.db.query(
+                "SELECT 1 FROM settlements WHERE market_ticker = ? LIMIT 1", (ticker,)
+            )
+            still_open = r["close_ts"] is not None and r["close_ts"] > now
+            if ticker in seen or settled or not still_open or ticker in self.positions:
+                # stale/duplicate/closed: don't leave it 'resting' forever
+                self.db.write_now_sql(
+                    "UPDATE sim_orders SET status = 'expired' WHERE id = ?", (r["id"],)
+                )
+                continue
+            seen.add(ticker)
+            strat = self.strategies.get(r["asset"])
+            self.resting[ticker] = RestingMaker(
+                asset=r["asset"], market_ticker=ticker,
+                strategy_key=strat.params_key() if strat else r["run_id"],
+                intent=OrderIntent(r["intent"]), price=r["limit_price"],
+                contracts=r["contracts"], placed_ts=r["ts"], last_checked_ts=r["ts"],
+            )
+            logger.info("recovered resting maker: %s %s %.0f @ %.2f (%s)",
+                        r["asset"], r["intent"], r["contracts"], r["limit_price"], ticker)
 
     def extra_tasks(self) -> list:
         from kalshibot.dashboard.api import serve
@@ -558,59 +597,99 @@ class ShadowTrader(Observer):
     async def _settle_loop(self) -> None:
         while True:
             await asyncio.sleep(SETTLE_CHECK_S)
+            # daily-loss NOTIFICATIONS re-arm at the UTC day roll (enforcement
+            # re-arms in the risk layer); without this, breaches after the first
+            # ever hit for an asset would alert nobody
+            day = time.strftime("%Y-%m-%d", time.gmtime())
+            if day != self._loss_limit_day:
+                self._loss_limit_day = day
+                self._loss_limit_notified.clear()
             for ticker, pos in list(self.positions.items()):
-                rows = self.db.query(
-                    "SELECT result FROM settlements WHERE market_ticker = ? "
-                    "AND result IN ('yes','no')", (ticker,),
-                )
-                if not rows:
-                    continue
-                result = rows[0]["result"]
-                gross, net = settle_position(
-                    pos.side, pos.contracts, pos.avg_price, pos.fees,
-                    result, DEFAULT_PAYOUT,
-                )
-                self.db.write_now("sim_positions", {
-                    "run_id": pos.run_id, "asset": pos.asset,
-                    "market_ticker": ticker, "side": pos.side,
-                    "contracts": pos.contracts, "avg_price": pos.avg_price,
-                    "fees": pos.fees, "entry_ts": pos.entry_ts,
-                    "entry_regime": pos.entry_regime, "result": result,
-                    "payout_per_contract": DEFAULT_PAYOUT,
-                    "pnl_gross": round(gross, 4), "pnl_net": round(net, 4),
-                })
-                self._bump_daily_pnl(pos, gross, net)
-                self.risk.record_pnl(pos.asset, net)
-                del self.positions[ticker]
-                self.hub.publish({"type": "settlement", "data": {
-                    "asset": pos.asset, "market_ticker": ticker,
-                    "result": result, "pnl_net": round(net, 2),
-                }})
-                self.notifier.emit("settlement", {
-                    "asset": pos.asset, "market_ticker": ticker,
-                    "result": result, "side": pos.side,
-                    "pnl_net": round(net, 2),
-                    "day_pnl": round(self.risk.daily_pnl.get(pos.asset, 0.0), 2),
-                })
-                day_pnl = self.risk.daily_pnl.get(pos.asset, 0.0)
-                if (day_pnl <= -self.risk.config.max_daily_loss_per_asset_usd
-                        and pos.asset not in self._loss_limit_notified):
-                    self._loss_limit_notified.add(pos.asset)
-                    self.notifier.emit("daily_loss_limit", {
-                        "scope": pos.asset, "day_pnl": round(day_pnl, 2),
-                        "limit": self.risk.config.max_daily_loss_per_asset_usd,
-                    })
-                if self.risk.global_daily_pnl <= -self.risk.config.max_daily_loss_global_usd \
-                        and "GLOBAL" not in self._loss_limit_notified:
-                    self._loss_limit_notified.add("GLOBAL")
-                    self.notifier.emit("daily_loss_limit", {
-                        "scope": "GLOBAL",
-                        "day_pnl": round(self.risk.global_daily_pnl, 2),
-                        "limit": self.risk.config.max_daily_loss_global_usd,
-                    })
-                logger.info("%s: SETTLED %s %s -> %s, pnl_net %+.2f (day %+.2f)",
-                            pos.asset, pos.side.upper(), ticker, result, net,
-                            self.risk.daily_pnl.get(pos.asset, 0.0))
+                try:
+                    self._settle_one(ticker, pos)
+                except Exception as exc:  # noqa: BLE001 — one bad position (or a
+                    # transient DB lock) must not kill settlement for everything
+                    logger.error("%s: settlement error for %s: %s",
+                                 pos.asset, ticker, exc)
+
+    def _settle_one(self, ticker: str, pos: "OpenPosition") -> None:
+        rows = self.db.query(
+            "SELECT result FROM settlements WHERE market_ticker = ?", (ticker,),
+        )
+        if not rows:
+            return
+        result = rows[0]["result"]
+        if result not in ("yes", "no"):
+            # voided / canceled / unrecognized terminal result: close the
+            # position at cost (no directional P&L) rather than strand it forever
+            self._close_voided(ticker, pos, result)
+            return
+        gross, net = settle_position(
+            pos.side, pos.contracts, pos.avg_price, pos.fees,
+            result, DEFAULT_PAYOUT,
+        )
+        self.db.write_now("sim_positions", {
+            "run_id": pos.run_id, "asset": pos.asset,
+            "market_ticker": ticker, "side": pos.side,
+            "contracts": pos.contracts, "avg_price": pos.avg_price,
+            "fees": pos.fees, "entry_ts": pos.entry_ts,
+            "entry_regime": pos.entry_regime, "result": result,
+            "payout_per_contract": DEFAULT_PAYOUT,
+            "pnl_gross": round(gross, 4), "pnl_net": round(net, 4),
+        })
+        self._bump_daily_pnl(pos, gross, net)
+        self.risk.record_pnl(pos.asset, net)
+        del self.positions[ticker]
+        self.hub.publish({"type": "settlement", "data": {
+            "asset": pos.asset, "market_ticker": ticker,
+            "result": result, "pnl_net": round(net, 2),
+        }})
+        self.notifier.emit("settlement", {
+            "asset": pos.asset, "market_ticker": ticker,
+            "result": result, "side": pos.side,
+            "pnl_net": round(net, 2),
+            "day_pnl": round(self.risk.daily_pnl.get(pos.asset, 0.0), 2),
+        })
+        day_pnl = self.risk.daily_pnl.get(pos.asset, 0.0)
+        if (day_pnl <= -self.risk.config.max_daily_loss_per_asset_usd
+                and pos.asset not in self._loss_limit_notified):
+            self._loss_limit_notified.add(pos.asset)
+            self.notifier.emit("daily_loss_limit", {
+                "scope": pos.asset, "day_pnl": round(day_pnl, 2),
+                "limit": self.risk.config.max_daily_loss_per_asset_usd,
+            })
+        if self.risk.global_daily_pnl <= -self.risk.config.max_daily_loss_global_usd \
+                and "GLOBAL" not in self._loss_limit_notified:
+            self._loss_limit_notified.add("GLOBAL")
+            self.notifier.emit("daily_loss_limit", {
+                "scope": "GLOBAL",
+                "day_pnl": round(self.risk.global_daily_pnl, 2),
+                "limit": self.risk.config.max_daily_loss_global_usd,
+            })
+        logger.info("%s: SETTLED %s %s -> %s, pnl_net %+.2f (day %+.2f)",
+                    pos.asset, pos.side.upper(), ticker, result, net,
+                    self.risk.daily_pnl.get(pos.asset, 0.0))
+
+    def _close_voided(self, ticker: str, pos: "OpenPosition", result: str) -> None:
+        """Close a position whose market settled with a non-yes/no result
+        (void/canceled): record it at zero directional P&L and free the slot so
+        it isn't stranded open forever (and re-recovered on every restart)."""
+        self.db.write_now("sim_positions", {
+            "run_id": pos.run_id, "asset": pos.asset,
+            "market_ticker": ticker, "side": pos.side,
+            "contracts": pos.contracts, "avg_price": pos.avg_price,
+            "fees": pos.fees, "entry_ts": pos.entry_ts,
+            "entry_regime": pos.entry_regime, "result": result or "void",
+            "payout_per_contract": pos.avg_price,  # refunded at cost -> gross 0
+            "pnl_gross": 0.0, "pnl_net": 0.0,
+        })
+        del self.positions[ticker]
+        self.hub.publish({"type": "settlement", "data": {
+            "asset": pos.asset, "market_ticker": ticker,
+            "result": result or "void", "pnl_net": 0.0,
+        }})
+        logger.warning("%s: VOID/CANCEL close %s (result=%r) — position freed at cost",
+                       pos.asset, ticker, result)
 
     def _bump_daily_pnl(self, pos: OpenPosition, gross: float, net: float) -> None:
         day = time.strftime("%Y-%m-%d", time.gmtime())

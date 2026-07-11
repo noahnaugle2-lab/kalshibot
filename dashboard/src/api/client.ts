@@ -195,6 +195,7 @@ function qs(params: Record<string, string | number | undefined>): string {
 export interface FullConfig {
   assets: Record<Asset, AssetConfig>;
   blackouts: Blackout[];
+  strategies?: string[]; // valid strategy keys from the backend registry
 }
 
 export type LeaderboardRegimeFilter = 'all' | Regime;

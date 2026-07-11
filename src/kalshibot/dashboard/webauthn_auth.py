@@ -119,6 +119,23 @@ def update_sign_count(db, credential_id: str, sign_count: int) -> None:
 
 # -------------------------------------------------------------------- ceremonies
 
+# Consumed challenges (single-use per WebAuthn spec). The challenge lives in a
+# stateless signed cookie, so without this a captured (challenge, assertion)
+# pair could be replayed within the 300s TTL. In-memory is sufficient: entries
+# self-expire in CHALLENGE_TTL_S and a restart is a shorter window than the TTL.
+_consumed_challenges: dict[str, float] = {}
+
+
+def _consume_challenge(challenge_b64: str) -> None:
+    """Mark a challenge used; raise if it was already used (replay)."""
+    now = time.time()
+    for k in [k for k, exp in _consumed_challenges.items() if exp < now]:
+        _consumed_challenges.pop(k, None)
+    if challenge_b64 in _consumed_challenges:
+        raise ValueError("challenge already used (replay rejected)")
+    _consumed_challenges[challenge_b64] = now + CHALLENGE_TTL_S
+
+
 def registration_options(db, rp_id: str) -> tuple[str, str]:
     """Return (options_json, challenge_b64) for a new passkey enrollment."""
     opts = generate_registration_options(
@@ -143,6 +160,7 @@ def verify_registration(
     db, credential: dict, challenge_b64: str, rp_id: str, origin: str, label: str
 ) -> None:
     """Verify an attestation and persist the new credential. Raises on failure."""
+    _consume_challenge(challenge_b64)
     v = verify_registration_response(
         credential=json.dumps(credential),
         expected_challenge=base64url_to_bytes(challenge_b64),
@@ -186,6 +204,7 @@ def verify_authentication(
     )
     if not rows:
         raise ValueError("unknown credential")
+    _consume_challenge(challenge_b64)
     v = verify_authentication_response(
         credential=json.dumps(credential),
         expected_challenge=base64url_to_bytes(challenge_b64),

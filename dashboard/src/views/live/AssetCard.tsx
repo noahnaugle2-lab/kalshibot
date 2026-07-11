@@ -145,9 +145,13 @@ export function AssetCard({
             onTogglePause();
           }}
           title={la.paused ? `resume ${sym}` : `pause ${sym}`}
-          className="text-ghost hover:text-dim bg-transparent border-0 p-0.5 cursor-pointer"
+          aria-label={la.paused ? `resume ${sym}` : `pause ${sym}`}
+          // p-2 -m-1.5 gives a ~32px touch target inside the clickable card
+          // without changing the visual size (was p-0.5 ≈ 14px — under the iOS
+          // 44pt guideline and easy to miss / mis-hit the card's onOpen)
+          className="text-ghost hover:text-dim bg-transparent border-0 p-2 -m-1.5 cursor-pointer flex items-center"
         >
-          {la.paused ? <Play size={10} /> : <Pause size={10} />}
+          {la.paused ? <Play size={12} /> : <Pause size={12} />}
         </button>
         <span
           className="text-[22px] font-extrabold leading-none"

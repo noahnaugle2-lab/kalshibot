@@ -31,6 +31,7 @@ BOOK_INTERVAL = 2.0
 TRADES_INTERVAL = 6.0
 SETTLEMENT_CHECK_DELAY = 120.0  # settlement value appears a few min after close
 MARKET_ROLL_GRACE = 5.0
+MAX_TRADE_PAGES = 12  # 12 x 100 = 1200 prints per poll ceiling (burst safety)
 
 
 class AssetTapeRecorder:
@@ -56,6 +57,8 @@ class AssetTapeRecorder:
         self.current_market: Market | None = None
         self.latest_book: Orderbook | None = None
         self.latest_book_ts: float | None = None
+        self._trade_watermark: dict[str, float] = {}  # ticker -> newest print ts seen
+        self._roll_from: str | None = None  # outgoing ticker awaiting a final trades poll
 
     # ------------------------------------------------------------ market roll
 
@@ -67,6 +70,10 @@ class AssetTapeRecorder:
             )
         except KalshiAPIError as exc:
             logger.warning("%s: market refresh failed: %s", self.asset, exc)
+            return
+        except Exception as exc:  # noqa: BLE001 — httpx.TransportError etc. must not
+            # kill the recorder task on a transient network blip; retry next roll
+            logger.warning("%s: market refresh transport error: %s", self.asset, exc)
             return
         live = [
             m for m in markets
@@ -80,6 +87,8 @@ class AssetTapeRecorder:
             return
         market = min(live, key=lambda m: m.close_time)  # type: ignore[arg-type,return-value]
         if self.current_market is None or market.ticker != self.current_market.ticker:
+            if self.current_market is not None:
+                self._roll_from = self.current_market.ticker  # final trades sweep
             self.current_market = market
             self.latest_book = None
             self.latest_book_ts = None
@@ -120,18 +129,31 @@ class AssetTapeRecorder:
 
     async def _market_roll_loop(self) -> None:
         while True:
-            close = (
-                self.current_market.close_time.timestamp()
-                if self.current_market and self.current_market.close_time
-                else None
-            )
-            if close is None:
-                # between windows (next market not yet listed): retry fast so
-                # strategies that act early in the window don't lose time
+            try:
+                close = (
+                    self.current_market.close_time.timestamp()
+                    if self.current_market and self.current_market.close_time
+                    else None
+                )
+                if close is None:
+                    # between windows (next market not yet listed): retry fast so
+                    # strategies that act early in the window don't lose time
+                    await asyncio.sleep(5)
+                else:
+                    await asyncio.sleep(max(1.0, close - time.time() + MARKET_ROLL_GRACE))
+                await self._refresh_market()
+                # one final trades sweep of the window we just left so the last
+                # prints (which land after the loop's last in-window poll) aren't lost
+                if self._roll_from is not None:
+                    rolled = self._roll_from
+                    self._roll_from = None
+                    await self._poll_trades(rolled)
+                    self._trade_watermark.pop(rolled, None)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — self-heal; never kill the loop
+                logger.error("%s: market roll loop error: %s", self.asset, exc)
                 await asyncio.sleep(5)
-            else:
-                await asyncio.sleep(max(1.0, close - time.time() + MARKET_ROLL_GRACE))
-            await self._refresh_market()
 
     async def _book_loop(self) -> None:
         while True:
@@ -171,31 +193,62 @@ class AssetTapeRecorder:
                 await asyncio.sleep(self.trades_interval)
                 continue
             try:
-                data = await self.client.get_trades(market.ticker, limit=100)
-                for t in data.get("trades") or []:
-                    created = t.get("created_time", "")
-                    try:
-                        ts = datetime.fromisoformat(
-                            created.replace("Z", "+00:00")
-                        ).timestamp()
-                    except ValueError:
-                        ts = time.time()
-                    self.db.add("trade_tape", {
-                        "trade_id": t.get("trade_id", ""),
-                        "market_ticker": market.ticker,
-                        "asset": self.asset,
-                        "ts": ts,
-                        "yes_price": float(t["yes_price_dollars"])
-                        if t.get("yes_price_dollars") else None,
-                        "count": float(t["count_fp"]) if t.get("count_fp") else None,
-                        "taker_side": t.get("taker_side", ""),
-                        "raw": dump_json(t),
-                    })
+                await self._poll_trades(market.ticker)
             except KalshiAPIError as exc:
                 logger.warning("%s: trades poll failed: %s", self.asset, exc)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — self-heal; retry next tick
                 logger.error("%s: trades loop error: %s", self.asset, exc)
             await asyncio.sleep(self.trades_interval)
+
+    @staticmethod
+    def _trade_ts(t: dict) -> float:
+        try:
+            return datetime.fromisoformat(
+                t.get("created_time", "").replace("Z", "+00:00")
+            ).timestamp()
+        except ValueError:
+            return time.time()
+
+    def _trade_row(self, ticker: str, t: dict, ts: float) -> dict:
+        return {
+            "trade_id": t.get("trade_id", ""),
+            "market_ticker": ticker,
+            "asset": self.asset,
+            "ts": ts,
+            "yes_price": float(t["yes_price_dollars"]) if t.get("yes_price_dollars") else None,
+            "count": float(t["count_fp"]) if t.get("count_fp") else None,
+            "taker_side": t.get("taker_side", ""),
+            "raw": dump_json(t),
+        }
+
+    async def _poll_trades(self, ticker: str) -> None:
+        """Fetch new prints for `ticker`, following the cursor past the 100-row
+        page so end-of-window bursts (>100 prints in one interval) aren't
+        dropped. Kalshi returns newest-first, so we page back until we reach
+        prints older than last poll's watermark; the UNIQUE trade_id constraint
+        dedupes the small boundary overlap."""
+        watermark = self._trade_watermark.get(ticker, 0.0)
+        newest = watermark
+        cursor: str | None = None
+        for _page in range(MAX_TRADE_PAGES):
+            data = await self.client.get_trades(ticker, limit=100, cursor=cursor)
+            trades = data.get("trades") or []
+            if not trades:
+                break
+            reached_old = False
+            for t in trades:
+                ts = self._trade_ts(t)
+                newest = max(newest, ts)
+                if ts < watermark:
+                    reached_old = True
+                self.db.add("trade_tape", self._trade_row(ticker, t, ts))
+            cursor = data.get("cursor") or None
+            if reached_old or not cursor:
+                break
+        else:
+            logger.warning("%s: trade pagination hit %d-page cap for %s — some "
+                           "prints may be unfetched", self.asset, MAX_TRADE_PAGES, ticker)
+        self._trade_watermark[ticker] = newest
 
     async def _settlement_loop(self) -> None:
         """Sweep: any recorded market that closed >60s ago and has no
