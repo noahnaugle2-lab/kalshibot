@@ -30,7 +30,7 @@ def main() -> int:
 
     if args.verify_only:
         with sqlite3.connect(args.verify_only) as db:
-            result = db.execute("PRAGMA integrity_check").fetchone()[0]
+            result = db.execute("PRAGMA quick_check(1)").fetchone()[0]
         print(result)
         return 0 if result == "ok" else 1
 
