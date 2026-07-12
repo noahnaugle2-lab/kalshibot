@@ -19,7 +19,8 @@ if ! command -v npm >/dev/null; then
     apt-get install -y nodejs npm
 fi
 
-mkdir -p "$RELEASES" "$SHARED/data" "$SHARED/logs" "$SHARED/secrets"
+install -d -o kalshi -g kalshi "$RELEASES" "$SHARED" \
+    "$SHARED/data" "$SHARED/logs" "$SHARED/secrets"
 release="$RELEASES/$(date -u +%Y%m%dT%H%M%SZ)"
 sudo -u kalshi git clone --quiet --branch "$REF" --depth 1 "$REPO" "$release"
 
