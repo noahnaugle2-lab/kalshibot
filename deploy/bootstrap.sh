@@ -13,18 +13,23 @@ REPO="https://github.com/noahnaugle2-lab/kalshibot.git"
 USER_HOME="/home/kalshi"
 APP_DIR="$USER_HOME/kalshibot"
 ARCH="$(dpkg --print-architecture)"   # arm64 or amd64
+CLOUDFLARED_VERSION="2026.7.1"        # reviewed release; update deliberately
 
 echo "==> [1/8] packages"
 apt-get update -y
 apt-get install -y python3 python3-venv python3-pip git ufw curl ca-certificates \
-    docker.io docker-compose-v2
+    docker.io docker-compose-v2 unattended-upgrades logrotate rclone
 
 echo "==> [2/8] user + firewall + NTP"
 id kalshi &>/dev/null || adduser --disabled-password --gecos "" kalshi
-usermod -aG sudo,docker kalshi
+# The trading account intentionally has neither sudo nor docker membership.
+# Docker group access is host-root-equivalent; root-owned systemd manages n8n.
+deluser kalshi sudo 2>/dev/null || true
+deluser kalshi docker 2>/dev/null || true
 timedatectl set-ntp true
 ufw allow OpenSSH >/dev/null
 ufw --force enable >/dev/null
+dpkg-reconfigure -f noninteractive unattended-upgrades
 
 echo "==> [3/8] clone repo"
 if [ ! -d "$APP_DIR/.git" ]; then
@@ -35,23 +40,39 @@ fi
 sudo -u kalshi mkdir -p "$APP_DIR/secrets" "$APP_DIR/data" "$APP_DIR/logs"
 
 echo "==> [4/8] python venv"
-sudo -u kalshi python3 -m venv "$APP_DIR/.venv"
-sudo -u kalshi "$APP_DIR/.venv/bin/pip" install -q --upgrade pip
-sudo -u kalshi "$APP_DIR/.venv/bin/pip" install -q -e "$APP_DIR"
+python3 -m venv /opt/kalshibot-uv
+/opt/kalshibot-uv/bin/pip install -q "uv==0.11.5"
+ln -sfn /opt/kalshibot-uv/bin/uv /usr/local/bin/uv
+sudo -u kalshi uv sync --frozen --all-extras --directory "$APP_DIR"
 
 echo "==> [5/8] cloudflared ($ARCH)"
 if ! command -v cloudflared &>/dev/null; then
-    curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH" \
-        -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
+    curl -fsSL "https://github.com/cloudflare/cloudflared/releases/download/$CLOUDFLARED_VERSION/cloudflared-linux-$ARCH" \
+        -o /tmp/cloudflared
+    case "$ARCH" in
+        amd64) expected="79a0ade7fc854f62c1aaef48424d9d979e8c2fcd039189d24db82b84cd146be1" ;;
+        arm64) expected="18f2c9bfc7a67a971bd96f1a5a1935def3c1e52aa386626f1566f04e9b5478d6" ;;
+        *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;;
+    esac
+    echo "$expected  /tmp/cloudflared" | sha256sum --check --status
+    install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
+    rm -f /tmp/cloudflared
 fi
 
 echo "==> [6/8] n8n container"
-(cd "$APP_DIR/deploy" && docker compose up -d)
+(cd "$APP_DIR/deploy" && docker compose pull && docker compose up -d)
 
 echo "==> [7/8] systemd units"
 cp "$APP_DIR/deploy/systemd/kalshibot.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/systemd/kalshibot-tunnel.service" /etc/systemd/system/
+cp "$APP_DIR/deploy/systemd/kalshibot-backup.service" /etc/systemd/system/
+cp "$APP_DIR/deploy/systemd/kalshibot-backup.timer" /etc/systemd/system/
+cp "$APP_DIR/deploy/logrotate/kalshibot" /etc/logrotate.d/kalshibot
+cp "$APP_DIR/deploy/sshd-hardening.conf" /etc/ssh/sshd_config.d/60-kalshibot-hardening.conf
+chown root:root /etc/logrotate.d/kalshibot
+chmod 644 /etc/logrotate.d/kalshibot
+sshd -t
+systemctl reload ssh
 systemctl daemon-reload
 # NOT started yet — needs .env + cloudflared auth first (step 8)
 
@@ -83,7 +104,7 @@ Bootstrap complete. Remaining manual steps (need your input):
    /home/kalshi/kalshibot/data/ (copy while the home trader is stopped).
 
 5. Start it:
-     systemctl enable --now kalshibot kalshibot-tunnel
+     systemctl enable --now kalshibot kalshibot-tunnel kalshibot-backup.timer
      journalctl -u kalshibot -f
 
 6. Route DNS + verify exposure checklist (README):

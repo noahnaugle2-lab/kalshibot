@@ -28,6 +28,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import ValidationError
 
 from kalshibot.dashboard import webauthn_auth as wa
 
@@ -62,6 +63,22 @@ class WSHub:
 
 def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
     app = FastAPI(title="KalshiBot", docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; connect-src 'self' wss:; object-src 'none'; "
+            "base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+        )
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        if request.url.path.startswith(("/api/", "/n8n/", "/auth/")):
+            response.headers["Cache-Control"] = "no-store"
+        return response
     token = trader.settings.dashboard_token or secrets.token_urlsafe(24)
     if not trader.settings.dashboard_token:
         logger.warning("DASHBOARD_TOKEN unset — generated for this session: %s", token)
@@ -393,7 +410,11 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
         allowed = {"strategy", "strategy_params", "edge_threshold_cents",
                    "max_position_contracts", "smart_money_weight", "paused"}
         updates = {k: v for k, v in body.items() if k in allowed}
-        updated = cfg.model_copy(update=updates)
+        from kalshibot.config import AssetConfig
+        try:
+            updated = AssetConfig.model_validate({**cfg.model_dump(), **updates})
+        except ValidationError as exc:
+            raise HTTPException(422, detail=exc.errors(include_url=False)) from exc
         # Validate-then-commit: build the strategy FIRST so an unknown key
         # returns a clean 400 instead of a 500 that has already corrupted the
         # in-memory config (asset_configs was mutated before build in the old
@@ -406,7 +427,9 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
             except KeyError as exc:
                 raise HTTPException(400, f"invalid strategy: {exc}") from exc
         trader.asset_configs[symbol] = updated
-        if new_strategy is not None:
+        if updated.strategy is None:
+            trader.strategies.pop(symbol, None)
+        elif new_strategy is not None:
             trader.strategies[symbol] = new_strategy
         if "paused" in updates:
             (trader.risk.paused_assets.add if updates["paused"]
@@ -417,8 +440,7 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
         })
         logger.info("config updated for %s: %s (in-memory; YAML is the "
                     "restart source of truth)", symbol, updates)
-        return {"ok": True, "asset": symbol, "applied": updates,
-                "note": "applied in-memory; persist to config/assets.yaml to survive restart"}
+        return updated.model_dump()
 
     # ------------------------------------------------------------ control
 
@@ -430,10 +452,18 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
             trader.risk.kill_switch = True
             cancelled = len(trader.resting)
             trader.resting.clear()
+            db.write_now_sql(
+                "UPDATE sim_orders SET status = 'cancelled' "
+                "WHERE execution = 'maker' AND status = 'resting'"
+            )
             logger.warning("KILL SWITCH ENGAGED via API (%d resting cancelled)", cancelled)
         else:
             trader.risk.kill_switch = False
             logger.warning("kill switch disengaged via API")
+        db.write_now("config_overrides", {
+            "ts": time.time(), "scope": "control:kill_switch",
+            "changes": json.dumps({"engaged": trader.risk.kill_switch}),
+        })
         trader.hub.publish({"type": "status", "data": _status_payload(trader)})
         trader.notifier.emit("kill_switch", {
             "engaged": trader.risk.kill_switch, "cancelled_orders": cancelled,

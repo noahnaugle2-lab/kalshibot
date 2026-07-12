@@ -10,6 +10,8 @@ from kalshibot.config import AssetConfig, Mode
 from kalshibot.dashboard.api import WSHub, create_app
 from kalshibot.orders.risk import RiskConfig, RiskManager
 from kalshibot.persistence.db import Database
+from kalshibot.strategies.library import build_strategy
+from kalshibot.trader import ShadowTrader
 
 TOKEN = "test-token-123"
 
@@ -34,8 +36,11 @@ def trader(tmp_path):
         "payout_per_contract": 0.99, "pnl_gross": 4.9, "pnl_net": 4.8,
     })
     stub = StubTrader(
-        settings=SimpleNamespace(mode=Mode.SHADOW, dashboard_token=TOKEN,
-                                 n8n_api_bearer_token=None),
+        settings=SimpleNamespace(
+            mode=Mode.SHADOW, dashboard_token=TOKEN, n8n_api_bearer_token=None,
+            dashboard_session_secret="test-session-secret",
+            dashboard_rp_id="localhost", dashboard_origin="https://localhost",
+        ),
         db=db,
         risk=RiskManager(config=RiskConfig()),
         recorders={"BTC": SimpleNamespace(
@@ -74,11 +79,15 @@ def test_all_api_routes_require_auth(client):
 
 
 def test_status_shape(client):
-    body = client.get("/api/status", headers=auth()).json()
+    response = client.get("/api/status", headers=auth())
+    body = response.json()
     assert body["mode"] == "SHADOW"
     assert body["kill_switch_engaged"] is False
     assert set(body["feeds"]) == {"coinbase", "binance_us", "kalshi"}
     assert body["clock_offset_ms"] == -12.0
+    assert response.headers["cache-control"] == "no-store"
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    assert response.headers["x-content-type-options"] == "nosniff"
 
 
 def test_live_handles_no_market(client):
@@ -108,6 +117,28 @@ def test_kill_switch_engage_disengage(client, trader):
     body = client.post("/api/control/kill", headers=auth(),
                        json={"engage": False}).json()
     assert body["engaged"] is False and trader.risk.kill_switch is False
+    rows = trader.db.query(
+        "SELECT changes FROM config_overrides WHERE scope = 'control:kill_switch' "
+        "ORDER BY id"
+    )
+    assert [r["changes"] for r in rows] == ['{"engaged": true}', '{"engaged": false}']
+
+
+def test_kill_switch_durably_cancels_resting_orders(client, trader):
+    trader.db.write_now("sim_orders", {
+        "run_id": "shadow-BTC-a", "ts": time.time(), "asset": "BTC",
+        "market_ticker": "M2", "intent": "BUY_YES", "execution": "maker",
+        "limit_price": 0.45, "contracts": 10, "status": "resting",
+        "filled_contracts": 0, "reason": "test",
+    })
+    trader.resting["M2"] = object()
+
+    body = client.post("/api/control/kill", headers=auth()).json()
+
+    assert body["cancelled_orders"] == 1
+    assert trader.resting == {}
+    [row] = trader.db.query("SELECT status FROM sim_orders WHERE market_ticker = 'M2'")
+    assert row["status"] == "cancelled"
 
 
 def test_pause_resume(client, trader):
@@ -122,11 +153,55 @@ def test_config_put_applies_and_audits(client, trader):
                           json={"smart_money_weight": 0.3, "paused": True,
                                 "bogus_field": 1})
     assert response.status_code == 200
+    assert response.json()["symbol"] == "BTC"
+    assert response.json()["smart_money_weight"] == 0.3
     assert trader.asset_configs["BTC"].smart_money_weight == 0.3
     assert "BTC" in trader.risk.paused_assets
-    assert "bogus_field" not in response.json()["applied"]
+    assert "bogus_field" not in response.json()
     audit = trader.db.query("SELECT * FROM config_overrides")
     assert len(audit) == 1 and "asset:BTC" == audit[0]["scope"]
+
+
+@pytest.mark.parametrize("payload", [
+    {"max_position_contracts": -1},
+    {"smart_money_weight": 1.5},
+    {"edge_threshold_cents": -0.1},
+    {"paused": "not-a-boolean"},
+])
+def test_config_put_rejects_invalid_values(client, trader, payload):
+    before = trader.asset_configs["BTC"]
+    response = client.put("/api/config/assets/BTC", headers=auth(), json=payload)
+    assert response.status_code == 422
+    assert trader.asset_configs["BTC"] == before
+
+
+def test_config_put_removes_disabled_strategy(client, trader):
+    trader.strategies["BTC"] = build_strategy("latency_momentum")
+    response = client.put(
+        "/api/config/assets/BTC", headers=auth(), json={"strategy": None}
+    )
+    assert response.status_code == 200
+    assert response.json()["strategy"] is None
+    assert "BTC" not in trader.strategies
+
+
+def test_kill_switch_recovery_fails_safe_and_skips_resting_orders(tmp_path):
+    db = Database(tmp_path / "recovery.db")
+    db.write_now("config_overrides", {
+        "ts": time.time(), "scope": "control:kill_switch",
+        "changes": '{"engaged": true}',
+    })
+    trader = ShadowTrader.__new__(ShadowTrader)
+    trader.db = db
+    trader.risk = RiskManager(config=RiskConfig())
+    trader.resting = {}
+
+    trader._recover_kill_switch()
+    trader._recover_resting()
+
+    assert trader.risk.kill_switch is True
+    assert trader.resting == {}
+    db.close()
 
 
 def test_docs_disabled(client):

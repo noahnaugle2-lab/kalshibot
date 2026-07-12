@@ -1,0 +1,21 @@
+[Unit]
+Description=KalshiBot verified database backup
+After=kalshibot.service
+
+[Service]
+Type=oneshot
+User=kalshi
+WorkingDirectory=/home/kalshi/kalshibot
+EnvironmentFile=-/home/kalshi/kalshibot/.env
+ExecStartPre=+/home/kalshi/kalshibot/deploy/backup-n8n.sh
+ExecStart=/home/kalshi/kalshibot/.venv/bin/python scripts/backup.py
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/home/kalshi/kalshibot/data

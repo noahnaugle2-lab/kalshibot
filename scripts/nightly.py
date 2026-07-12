@@ -159,6 +159,7 @@ async def main() -> int:
     reports_dir.mkdir(parents=True, exist_ok=True)
     path = reports_dir / f"nightly_{time.strftime('%Y%m%d_%H%M%S')}.txt"
     path.write_text(text)
+    db.write_now("meta", {"key": "last_nightly_ts", "value": str(time.time())})
     print(f"\nwrote {path}")
     db.close()
     # non-zero exit so the trader's nightly watcher logs+alerts on partial failure

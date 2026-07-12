@@ -60,7 +60,7 @@ def test_health_report_stale_everything(tmp_path):
     healthy, problems = health_report(make_trader(tmp_path, fresh=False))
     assert not healthy
     assert any("spot" in p for p in problems)
-    assert any("books" in p for p in problems)
+    assert any("book" in p for p in problems)
     assert any("snapshots" in p for p in problems)
 
 
@@ -69,8 +69,12 @@ def test_health_report_stale_everything(tmp_path):
 def stub_trader(tmp_path, n8n_token):
     db = Database(tmp_path / "n8n.db")
     return SimpleNamespace(
-        settings=SimpleNamespace(mode=Mode.SHADOW, dashboard_token="dash-token",
-                                 n8n_api_bearer_token=n8n_token),
+        settings=SimpleNamespace(
+            mode=Mode.SHADOW, dashboard_token="dash-token",
+            n8n_api_bearer_token=n8n_token,
+            dashboard_session_secret="test-session-secret",
+            dashboard_rp_id="localhost", dashboard_origin="https://localhost",
+        ),
         db=db, risk=RiskManager(config=RiskConfig()),
         recorders={}, asset_configs={"BTC": AssetConfig(symbol="BTC")},
         strategies={}, positions={}, resting={}, smart={},

@@ -21,6 +21,7 @@ Pipeline per scan, per asset:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -161,6 +162,7 @@ class ShadowTrader(Observer):
                 "tape_start": self._session_start, "tape_end": None,
                 "windows": None, "summary": None,
             })
+        self._recover_kill_switch()
         self._recover_positions()
         self._recover_resting()
         self._recover_daily_pnl()
@@ -199,6 +201,22 @@ class ShadowTrader(Observer):
             if (row["net"] or 0) <= -self.risk.config.max_daily_loss_per_asset_usd:
                 logger.warning("%s: daily loss limit already hit today (%.2f) — "
                                "halted for the day", row["asset"], row["net"])
+
+    def _recover_kill_switch(self) -> None:
+        """Restore the latest operator kill-switch decision across restarts."""
+        rows = self.db.query(
+            "SELECT changes FROM config_overrides "
+            "WHERE scope = 'control:kill_switch' ORDER BY id DESC LIMIT 1"
+        )
+        if not rows:
+            return
+        try:
+            self.risk.kill_switch = bool(json.loads(rows[0]["changes"])["engaged"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            logger.exception("invalid persisted kill-switch state; defaulting to engaged")
+            self.risk.kill_switch = True
+        if self.risk.kill_switch:
+            logger.warning("kill switch restored as ENGAGED from persistent state")
 
     def _recover_positions(self) -> None:
         """Rebuild open positions from fills that never reached settlement.
@@ -251,6 +269,15 @@ class ShadowTrader(Observer):
             "WHERE o.execution = 'maker' AND o.status = 'resting' "
             "ORDER BY o.ts DESC",
         )
+        if self.risk.kill_switch:
+            self.db.write_now_sql(
+                "UPDATE sim_orders SET status = 'cancelled' "
+                "WHERE execution = 'maker' AND status = 'resting'"
+            )
+            if rows:
+                logger.warning("kill switch engaged: cancelled %d recovered maker orders",
+                               len(rows))
+            return
         now = time.time()
         seen: set[str] = set()
         for r in rows:

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run KalshiBot backup nightly
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 UTC
+Persistent=true
+RandomizedDelaySec=5m
+Unit=kalshibot-backup.service
+
+[Install]
+WantedBy=timers.target

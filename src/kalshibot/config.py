@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     decision_model: str = Field(default="claude-haiku-4-5", alias="DECISION_MODEL")
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     retention_days: int = Field(default=30, alias="RETENTION_DAYS")
+    disk_warning_percent: float = Field(default=80, alias="DISK_WARNING_PERCENT")
+    disk_critical_percent: float = Field(default=90, alias="DISK_CRITICAL_PERCENT")
+    backup_max_age_hours: float = Field(default=26, alias="BACKUP_MAX_AGE_HOURS")
 
 
 class AssetConfig(BaseModel):
@@ -72,11 +75,11 @@ class AssetConfig(BaseModel):
     enabled: bool = True
     paused: bool = False
     capital_allocation: str = "equal"
-    edge_threshold_cents: float = 3
-    max_position_contracts: int = 100
+    edge_threshold_cents: float = Field(default=3, ge=0, le=100)
+    max_position_contracts: int = Field(default=100, gt=0)
     strategy: str | None = None
-    strategy_params: dict[str, Any] = {}
-    smart_money_weight: float = 0.0
+    strategy_params: dict[str, Any] = Field(default_factory=dict)
+    smart_money_weight: float = Field(default=0.0, ge=0, le=1)
     late_window_enabled: bool = False
     ai_enabled: bool = False  # per-asset Claude decision layer (A/B vs baseline)
 

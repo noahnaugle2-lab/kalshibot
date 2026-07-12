@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import time
+from pathlib import Path
 
 import httpx
 
@@ -23,6 +25,8 @@ PING_INTERVAL_S = 60.0
 SPOT_STALE_S = 90.0
 BOOK_STALE_S = 90.0
 SNAPSHOT_STALE_S = 30.0
+DEFAULT_DISK_CRITICAL_PERCENT = 90.0
+DEFAULT_BACKUP_MAX_AGE_HOURS = 26.0
 
 
 def health_report(trader, now: float | None = None) -> tuple[bool, list[str]]:
@@ -62,6 +66,38 @@ def health_report(trader, now: float | None = None) -> tuple[bool, list[str]]:
     ]
     if not snapshot_ages or min(snapshot_ages) > SNAPSHOT_STALE_S:
         problems.append("scan loop not producing snapshots")
+
+    settings = getattr(trader, "settings", None)
+    data_path = Path(getattr(getattr(trader, "db", None), "path", ".")).parent
+    try:
+        usage = shutil.disk_usage(data_path)
+        used_pct = 100 * usage.used / usage.total
+        critical = getattr(settings, "disk_critical_percent",
+                           DEFAULT_DISK_CRITICAL_PERCENT)
+        if used_pct >= critical:
+            problems.append(f"disk critical: {used_pct:.1f}% used")
+            risk = getattr(trader, "risk", None)
+            if risk is not None:
+                risk.kill_switch = True
+        else:
+            warning = getattr(settings, "disk_warning_percent", 80.0)
+            if used_pct >= warning:
+                problems.append(f"disk warning: {used_pct:.1f}% used")
+    except OSError as exc:
+        problems.append(f"disk check failed: {exc}")
+
+    queue = getattr(getattr(trader, "db", None), "_queue", None)
+    if queue is not None and queue.qsize() >= 10_000:
+        problems.append(f"db write queue critical: {queue.qsize()} rows")
+
+    # Once backups have been configured, a stale success marker is unhealthy.
+    backup_rows = trader.db.query("SELECT value FROM meta WHERE key='last_backup_ts'")
+    if backup_rows:
+        max_age = getattr(settings, "backup_max_age_hours",
+                          DEFAULT_BACKUP_MAX_AGE_HOURS) * 3600
+        age = now - float(backup_rows[0]["value"])
+        if age > max_age:
+            problems.append(f"backup stale: {age / 3600:.1f}h old")
 
     try:
         trader.db.write_now("meta", {"key": "last_health_ts", "value": str(now)})

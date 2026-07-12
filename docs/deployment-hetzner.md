@@ -82,21 +82,31 @@ HEALTHCHECKS_PING_URL=<create at healthchecks.io — the dead man's switch>
 
 ## 5. n8n via Docker
 
+**Current state:** n8n is hosted on the Hetzner VPS alongside KalshiBot. The
+authoritative `kalshibot_n8n_data` volume is backed up nightly. The former
+laptop container has been removed; its empty volume is retained temporarily
+only as a rollback artifact.
+
 ```bash
 apt -y install docker.io docker-compose-plugin
 cd ~/kalshibot/deploy && docker compose up -d       # binds 127.0.0.1:5678
 ```
-⚠️ Create the n8n owner account at `http://127.0.0.1:5678` **before** routing
-its DNS (a fresh n8n lets the first visitor claim it) — tunnel it or SSH
-port-forward (`ssh -L 5678:127.0.0.1:5678 kalshi@<ip>`) to reach it.
+The owner account is configured and the editor is protected by Cloudflare
+Access. For emergency direct administration, use an SSH port-forward:
+`ssh -L 5678:127.0.0.1:5678 kalshi@<ip>`.
 
-## 6. DB retention job (do this now, not later)
+## 6. Retention and independent backups
 
-At ~0.4 GB/day the 80 GB disk fills in ~5 months on 3 assets, faster on 9.
-Build the spec's nightly parquet-archival step (tape/book_snapshots older than
-30 days → compressed parquet, drop from SQLite) before it matters. Until then,
-a Hetzner volume is the stopgap. **This is the one piece of new code the
-migration needs; everything else is config.**
+Nightly retention archives aged tape rows to compressed Parquet. A separate
+systemd timer creates a transactionally consistent SQLite backup, verifies it,
+retains 14 local copies, and records freshness for the health gate. Set
+`BACKUP_RCLONE_DEST` to an encrypted off-host rclone destination. Hetzner
+snapshots do not include attached Volumes, so they are not a database backup.
+
+```bash
+systemctl start kalshibot-backup.service
+.venv/bin/python scripts/backup.py --verify-only data/backups/<backup>.db
+```
 
 ## 7. Supervision — systemd units (replaces launchd)
 
@@ -128,13 +138,13 @@ WantedBy=multi-user.target
 
 ```bash
 systemctl daemon-reload
-systemctl enable --now kalshibot kalshibot-tunnel
+systemctl enable --now kalshibot kalshibot-tunnel kalshibot-backup.timer
 ```
 
 This is strictly better than the home launchd setup: real crash-restart, real
 reboot-persistence, no TCC/FDA issues, `journalctl -u kalshibot` for logs.
 
-## 8. Cloudflare Tunnel ⚠️
+## 8. Cloudflare Tunnel and Access ⚠️
 
 The tunnel credentials (`~/.cloudflared/<id>.json`) are machine-bound — either
 copy them to the server, or `cloudflared tunnel login` fresh on the server and
@@ -142,6 +152,10 @@ re-create the `kalshibot` tunnel + routes (`kalshi.naugle.us`, and
 `n8n.naugle.us` only after the owner account exists). Verify the exposure
 checklist in the README (401 unauthenticated, /docs 404, WS through the
 tunnel).
+
+Cloudflare Access is required for both hostnames. Allow only Noah's identity,
+require MFA, and use a service token for automation. Isolate any public n8n
+webhook paths from the protected editor. See `deploy/hetzner-firewall.md`.
 
 ## 9. Cutover ⚠️
 
@@ -166,6 +180,17 @@ The direct-API engine is wired and off. To A/B it on the winners:
 - The scorecard already splits `+ai` runs from baseline, so its contribution
   is measured, not assumed.
 
+## 11. Updates and atomic deployment
+
+`uv.lock` pins Python resolution and n8n is pinned in Compose. Deploy a tested
+release with automatic rollback instead of pulling into the live directory:
+
+```bash
+sudo /home/kalshi/kalshibot/deploy/deploy.sh main
+```
+
+Review n8n and cloudflared releases monthly and back up before upgrades.
+
 ---
 
 ## What you need to gather before starting
@@ -175,4 +200,7 @@ The direct-API engine is wired and off. To A/B it on the winners:
 - [ ] ⚠️ Healthchecks.io ping URL (the dead man's switch, still unset)
 - [ ] ⚠️ Decide: copy the tunnel credentials, or re-auth cloudflared on the server
 - [ ] ⚠️ Rotate DASHBOARD_TOKEN + N8N_API_BEARER_TOKEN (the current ones appeared in chat)
+- [ ] ⚠️ Configure Cloudflare Access with MFA for both applications
+- [ ] ⚠️ Attach a Hetzner firewall with SSH restricted to a trusted source
+- [ ] ⚠️ Configure `BACKUP_RCLONE_DEST` and complete a restore drill
 - [ ] Prod Kalshi key stays home until the 2-week campaign + go-live checklist pass
