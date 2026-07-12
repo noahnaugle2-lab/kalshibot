@@ -177,6 +177,49 @@ CREATE TABLE IF NOT EXISTS sim_positions (
 );
 CREATE INDEX IF NOT EXISTS idx_sim_positions_run ON sim_positions(run_id);
 
+CREATE TABLE IF NOT EXISTS smart_counterfactuals (
+    ledger_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    execution TEXT NOT NULL,
+    limit_price REAL NOT NULL,
+    baseline_requested REAL NOT NULL,
+    smart_lean TEXT NOT NULL,
+    smart_strength REAL NOT NULL,
+    smart_weight REAL NOT NULL,
+    smart_requested REAL NOT NULL,
+    smart_veto INTEGER NOT NULL DEFAULT 0,
+    modifier_note TEXT,
+    baseline_risk_approved INTEGER NOT NULL DEFAULT 0,
+    baseline_risk_contracts REAL NOT NULL DEFAULT 0,
+    baseline_risk_reason TEXT,
+    smart_risk_approved INTEGER NOT NULL DEFAULT 0,
+    smart_risk_contracts REAL NOT NULL DEFAULT 0,
+    smart_risk_reason TEXT,
+    execution_status TEXT NOT NULL,
+    actual_filled REAL NOT NULL DEFAULT 0,
+    actual_avg_price REAL,
+    actual_fees REAL,
+    fill_ratio REAL,
+    baseline_cf_filled REAL,
+    baseline_cf_avg_price REAL,
+    baseline_cf_fees REAL,
+    smart_cf_filled REAL,
+    smart_cf_avg_price REAL,
+    smart_cf_fees REAL,
+    settlement_result TEXT,
+    actual_pnl_net REAL,
+    baseline_cf_pnl_net REAL,
+    smart_cf_pnl_net REAL,
+    settled_ts REAL
+);
+CREATE INDEX IF NOT EXISTS idx_scf_asset_ts ON smart_counterfactuals(asset, ts);
+CREATE INDEX IF NOT EXISTS idx_scf_market ON smart_counterfactuals(run_id, market_ticker);
+
 CREATE TABLE IF NOT EXISTS calibration_reports (
     id INTEGER PRIMARY KEY,
     run_ts REAL NOT NULL,

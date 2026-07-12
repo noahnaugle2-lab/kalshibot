@@ -38,6 +38,7 @@ class StrategySignal(BaseModel):
     limit_price: float               # in the intent's own terms (NO price for NO intents)
     execution: str = "taker"         # "taker" (cross now, IOC) | "maker" (rest inside spread)
     reason: str = ""
+    counterfactual_id: str | None = None  # runtime linkage, ignored by strategies
 
 
 class Strategy(abc.ABC):

@@ -63,6 +63,7 @@ class OpenPosition:
     entry_regime: str
     reason: str
     run_id: str  # settlement writes to the run that opened the position
+    counterfactual_id: str | None = None
 
 
 @dataclass
@@ -75,6 +76,7 @@ class RestingMaker:
     contracts: float
     placed_ts: float
     last_checked_ts: float
+    counterfactual_id: str | None = None
 
 
 class ShadowTrader(Observer):
@@ -254,6 +256,13 @@ class ShadowTrader(Observer):
                 fees=f["fee"], entry_ts=f["ts"],
                 entry_regime=entry_regime, reason=f["reason"] or "recovered",
                 run_id=f["run_id"],
+                counterfactual_id=(lambda rows: rows[0]["ledger_id"] if rows else None)(
+                    self.db.query(
+                        "SELECT ledger_id FROM smart_counterfactuals WHERE run_id=? "
+                        "AND market_ticker=? AND actual_filled > 0 "
+                        "ORDER BY ts DESC LIMIT 1", (f["run_id"], f["market_ticker"]),
+                    )
+                ),
             )
             logger.info("recovered open position: %s %s %.0f @ %.3f (%s)",
                         f["asset"], side.upper(), f["contracts"], f["price"],
@@ -299,6 +308,13 @@ class ShadowTrader(Observer):
                 strategy_key=strat.params_key() if strat else r["run_id"],
                 intent=OrderIntent(r["intent"]), price=r["limit_price"],
                 contracts=r["contracts"], placed_ts=r["ts"], last_checked_ts=r["ts"],
+                counterfactual_id=(lambda rows: rows[0]["ledger_id"] if rows else None)(
+                    self.db.query(
+                        "SELECT ledger_id FROM smart_counterfactuals WHERE run_id=? "
+                        "AND market_ticker=? AND execution_status='approved' "
+                        "ORDER BY ts DESC LIMIT 1", (r["run_id"], ticker),
+                    )
+                ),
             )
             logger.info("recovered resting maker: %s %s %.0f @ %.2f (%s)",
                         r["asset"], r["intent"], r["contracts"], r["limit_price"], ticker)
@@ -391,6 +407,17 @@ class ShadowTrader(Observer):
         signal = strategy.evaluate(snap, position)
         if signal is None:
             return
+        if (asset in self.ai_assets and self.decision_engine is not None
+                and snap.market_ticker in self._ai_pending):
+            return
+
+        baseline_signal = signal.model_copy(deep=True)
+        recorder = self.recorders[asset]
+        depth = self._opposing_depth(snap, baseline_signal)
+        baseline_verdict: Verdict = self.risk.check(
+            asset, baseline_signal, snap, position,
+            resting_depth_at_price=depth, now=snap.ts,
+        )
 
         # smart-money confidence modifier (weight 0 during early evaluation)
         weight = self.asset_configs[asset].smart_money_weight
@@ -398,7 +425,14 @@ class ShadowTrader(Observer):
         contracts, vetoed, note = sm_signal.apply_modifier(
             signal.intent, signal.contracts, sm, weight
         )
+        ledger_id = uuid.uuid4().hex
+        signal.counterfactual_id = ledger_id
         if vetoed:
+            self._record_counterfactual(
+                ledger_id, asset, snap, strategy.params_key(), baseline_signal,
+                sm, weight, contracts, True, note, baseline_verdict, None,
+                "smart_veto",
+            )
             self._record_order(asset, snap, signal, "taker", "smart_veto", 0.0)
             logger.info("%s: %s", asset, note)
             return
@@ -407,10 +441,14 @@ class ShadowTrader(Observer):
         signal.contracts = contracts
 
         # deterministic risk layer — final authority
-        recorder = self.recorders[asset]
         depth = self._opposing_depth(snap, signal)
         verdict: Verdict = self.risk.check(
             asset, signal, snap, position, resting_depth_at_price=depth, now=snap.ts
+        )
+        self._record_counterfactual(
+            ledger_id, asset, snap, strategy.params_key(), baseline_signal,
+            sm, weight, contracts, False, note, baseline_verdict, verdict,
+            "approved" if verdict.approved else "risk_veto",
         )
         if not verdict.approved:
             logger.debug("%s: risk veto: %s", asset, verdict.reason)
@@ -418,8 +456,6 @@ class ShadowTrader(Observer):
         signal.contracts = verdict.contracts
 
         if asset in self.ai_assets and self.decision_engine is not None:
-            if snap.market_ticker in self._ai_pending:
-                return
             self._ai_pending.add(snap.market_ticker)
             task = asyncio.create_task(self._ai_flow(asset, snap, signal, strategy))
             self._ai_tasks.add(task)
@@ -439,6 +475,7 @@ class ShadowTrader(Observer):
                 strategy_key=strategy_key, intent=signal.intent,
                 price=signal.limit_price, contracts=signal.contracts,
                 placed_ts=snap.ts, last_checked_ts=snap.ts,
+                counterfactual_id=signal.counterfactual_id,
             )
             self._record_order(asset, snap, signal, "maker", "resting", 0.0)
             logger.info("%s: resting maker %s %.0f @ %.2f (%s)", asset,
@@ -448,9 +485,13 @@ class ShadowTrader(Observer):
 
         book = self.recorders[asset].latest_book
         if book is None:
+            self._update_counterfactual(signal.counterfactual_id,
+                                        execution_status="no_book")
             return
         fill = simulate_taker(signal.intent, signal.limit_price, signal.contracts, book)
         if fill.filled < 1:
+            self._update_counterfactual(signal.counterfactual_id,
+                                        execution_status="missed")
             self._record_order(asset, snap, signal, "taker", "missed", 0.0)
             logger.info("%s: taker signal missed (book moved): %s", asset, signal.reason)
             return
@@ -458,7 +499,7 @@ class ShadowTrader(Observer):
         self._record_order(asset, snap, signal, "taker", status, fill.filled)
         self._open_position(asset, snap, strategy_key, signal.intent,
                             fill.filled, fill.avg_price or 0.0, fill.total_fee,
-                            "taker", signal.reason)
+                            "taker", signal.reason, signal.counterfactual_id)
 
     async def _ai_flow(self, asset: str, snap: FeatureSnapshot,
                        signal: StrategySignal, strategy: Strategy) -> None:
@@ -483,10 +524,14 @@ class ShadowTrader(Observer):
             },
         )
         if disposition == "hold":
+            self._update_counterfactual(signal.counterfactual_id,
+                                        execution_status="ai_hold")
             return
         final_signal = signal
         if disposition == "claude" and decision is not None:
             if decision.action == "HOLD":
+                self._update_counterfactual(signal.counterfactual_id,
+                                            execution_status="ai_hold")
                 logger.info("%s: claude HOLD (%s)", asset, decision.reasoning[:80])
                 return
             if decision.action == "SELL":
@@ -500,6 +545,7 @@ class ShadowTrader(Observer):
                              if decision.limit_price_cents else signal.limit_price),
                 execution="taker",
                 reason=f"claude({decision.confidence:.2f}): {decision.reasoning[:120]}",
+                counterfactual_id=signal.counterfactual_id,
             )
 
         # fresh risk re-check: recompute time state, positions may have changed
@@ -521,6 +567,10 @@ class ShadowTrader(Observer):
             resting_depth_at_price=self._opposing_depth(fresh, final_signal),
         )
         if not verdict.approved:
+            self._update_counterfactual(
+                final_signal.counterfactual_id,
+                execution_status="post_ai_risk_veto",
+            )
             logger.info("%s: post-decision risk veto: %s", asset, verdict.reason)
             return
         final_signal.contracts = verdict.contracts
@@ -534,6 +584,78 @@ class ShadowTrader(Observer):
             "contracts": signal.contracts, "status": status,
             "filled_contracts": filled, "reason": signal.reason,
         })
+
+    def _record_counterfactual(
+        self, ledger_id: str, asset: str, snap: FeatureSnapshot,
+        strategy_key: str, baseline: StrategySignal,
+        sm: sm_signal.SmartMoneySignal, weight: float, smart_requested: float,
+        smart_veto: bool, note: str, baseline_verdict: Verdict,
+        smart_verdict: Verdict | None, status: str,
+    ) -> None:
+        self.db.write_now("smart_counterfactuals", {
+            "ledger_id": ledger_id, "run_id": self.run_ids[asset], "ts": snap.ts,
+            "asset": asset, "market_ticker": snap.market_ticker,
+            "strategy": strategy_key, "intent": baseline.intent.value,
+            "execution": baseline.execution, "limit_price": baseline.limit_price,
+            "baseline_requested": baseline.contracts, "smart_lean": sm.lean,
+            "smart_strength": sm.strength, "smart_weight": weight,
+            "smart_requested": smart_requested, "smart_veto": int(smart_veto),
+            "modifier_note": note,
+            "baseline_risk_approved": int(baseline_verdict.approved),
+            "baseline_risk_contracts": baseline_verdict.contracts,
+            "baseline_risk_reason": baseline_verdict.reason,
+            "smart_risk_approved": int(bool(smart_verdict and smart_verdict.approved)),
+            "smart_risk_contracts": smart_verdict.contracts if smart_verdict else 0.0,
+            "smart_risk_reason": smart_verdict.reason if smart_verdict else "smart veto",
+            "execution_status": status,
+        })
+        self._capture_taker_counterfactual_fills(
+            ledger_id, asset, baseline, baseline_verdict,
+            smart_verdict, smart_veto,
+        )
+
+    def _capture_taker_counterfactual_fills(
+        self, ledger_id: str, asset: str, baseline: StrategySignal,
+        baseline_verdict: Verdict, smart_verdict: Verdict | None,
+        smart_veto: bool,
+    ) -> None:
+        """Snapshot both taker paths against the same proposal-time book."""
+        if baseline.execution != "taker":
+            return
+        book = self.recorders[asset].latest_book
+        if book is None:
+            return
+        values = {}
+        if baseline_verdict.approved:
+            fill = simulate_taker(
+                baseline.intent, baseline.limit_price,
+                baseline_verdict.contracts, book,
+            )
+            values.update(
+                baseline_cf_filled=fill.filled,
+                baseline_cf_avg_price=fill.avg_price,
+                baseline_cf_fees=fill.total_fee,
+            )
+        if not smart_veto and smart_verdict and smart_verdict.approved:
+            fill = simulate_taker(
+                baseline.intent, baseline.limit_price,
+                smart_verdict.contracts, book,
+            )
+            values.update(
+                smart_cf_filled=fill.filled,
+                smart_cf_avg_price=fill.avg_price,
+                smart_cf_fees=fill.total_fee,
+            )
+        self._update_counterfactual(ledger_id, **values)
+
+    def _update_counterfactual(self, ledger_id: str | None, **values) -> None:
+        if not ledger_id or not values:
+            return
+        sets = ", ".join(f"{key} = ?" for key in values)
+        self.db.write_now_sql(
+            f"UPDATE smart_counterfactuals SET {sets} WHERE ledger_id = ?",
+            (*values.values(), ledger_id),
+        )
 
     def _update_order_status(self, market_ticker: str, status: str, filled: float) -> None:
         rows = self.db.query(
@@ -549,7 +671,8 @@ class ShadowTrader(Observer):
     # -------------------------------------------------------------- fills
 
     def _open_position(self, asset, snap, strategy_key, intent, contracts,
-                       avg_price, fees, liquidity, reason) -> None:
+                       avg_price, fees, liquidity, reason,
+                       counterfactual_id: str | None = None) -> None:
         side = "yes" if intent is OrderIntent.BUY_YES else "no"
         self.positions[snap.market_ticker] = OpenPosition(
             asset=asset, market_ticker=snap.market_ticker,
@@ -557,7 +680,37 @@ class ShadowTrader(Observer):
             avg_price=avg_price, fees=fees, entry_ts=snap.ts,
             entry_regime=snap.regime.value, reason=reason,
             run_id=self.run_ids[asset],
+            counterfactual_id=counterfactual_id,
         )
+        if counterfactual_id:
+            rows = self.db.query(
+                "SELECT smart_risk_contracts, baseline_risk_contracts "
+                "FROM smart_counterfactuals WHERE ledger_id = ?",
+                (counterfactual_id,),
+            )
+            if rows:
+                smart_size = rows[0]["smart_risk_contracts"] or 0.0
+                fill_ratio = min(1.0, contracts / smart_size) if smart_size else 0.0
+                values = dict(
+                    execution_status="filled",
+                    actual_filled=contracts, actual_avg_price=avg_price,
+                    actual_fees=fees, fill_ratio=fill_ratio,
+                )
+                # Maker fills cannot be known at proposal time. Scale both
+                # paths by the observed fill ratio and use the actual quote.
+                cf = self.db.query(
+                    "SELECT execution FROM smart_counterfactuals WHERE ledger_id=?",
+                    (counterfactual_id,),
+                )
+                if cf and cf[0]["execution"] == "maker":
+                    values.update(
+                        baseline_cf_filled=(rows[0]["baseline_risk_contracts"] or 0.0)
+                        * fill_ratio,
+                        baseline_cf_avg_price=avg_price, baseline_cf_fees=0.0,
+                        smart_cf_filled=smart_size * fill_ratio,
+                        smart_cf_avg_price=avg_price, smart_cf_fees=0.0,
+                    )
+                self._update_counterfactual(counterfactual_id, **values)
         self.db.write_now("sim_fills", {
             "run_id": self.run_ids[asset], "ts": snap.ts, "asset": asset,
             "market_ticker": snap.market_ticker, "intent": intent.value,
@@ -579,6 +732,8 @@ class ShadowTrader(Observer):
             return
         if snap.regime == Regime.SETTLEMENT:
             logger.info("%s: cancel resting maker at blackout", asset)
+            self._update_counterfactual(order.counterfactual_id,
+                                        execution_status="expired")
             self._update_order_status(snap.market_ticker, "expired", 0.0)
             del self.resting[snap.market_ticker]
             return
@@ -599,7 +754,8 @@ class ShadowTrader(Observer):
         del self.resting[snap.market_ticker]
         self._open_position(asset, snap, order.strategy_key, order.intent,
                             fill.filled, order.price, 0.0, "maker",
-                            f"maker filled from prints @ {order.price:.2f}")
+                            f"maker filled from prints @ {order.price:.2f}",
+                            order.counterfactual_id)
 
     def _position_state(self, market_ticker: str) -> PositionState:
         pos = self.positions.get(market_ticker)
@@ -638,6 +794,7 @@ class ShadowTrader(Observer):
                     # transient DB lock) must not kill settlement for everything
                     logger.error("%s: settlement error for %s: %s",
                                  pos.asset, ticker, exc)
+            self._settle_counterfactual_sweep()
 
     def _settle_one(self, ticker: str, pos: "OpenPosition") -> None:
         rows = self.db.query(
@@ -664,6 +821,7 @@ class ShadowTrader(Observer):
             "payout_per_contract": DEFAULT_PAYOUT,
             "pnl_gross": round(gross, 4), "pnl_net": round(net, 4),
         })
+        self._settle_counterfactual(pos, result, net)
         self._bump_daily_pnl(pos, gross, net)
         self.risk.record_pnl(pos.asset, net)
         del self.positions[ticker]
@@ -710,6 +868,11 @@ class ShadowTrader(Observer):
             "payout_per_contract": pos.avg_price,  # refunded at cost -> gross 0
             "pnl_gross": 0.0, "pnl_net": 0.0,
         })
+        self._update_counterfactual(
+            pos.counterfactual_id, settlement_result=result or "void",
+            actual_pnl_net=0.0, baseline_cf_pnl_net=0.0,
+            smart_cf_pnl_net=0.0, settled_ts=time.time(),
+        )
         del self.positions[ticker]
         self.hub.publish({"type": "settlement", "data": {
             "asset": pos.asset, "market_ticker": ticker,
@@ -717,6 +880,80 @@ class ShadowTrader(Observer):
         }})
         logger.warning("%s: VOID/CANCEL close %s (result=%r) — position freed at cost",
                        pos.asset, ticker, result)
+
+    def _settle_counterfactual(
+        self, pos: OpenPosition, result: str, actual_net: float,
+    ) -> None:
+        if not pos.counterfactual_id:
+            return
+        rows = self.db.query(
+            "SELECT baseline_cf_filled, baseline_cf_avg_price, baseline_cf_fees, "
+            "smart_cf_filled, smart_cf_avg_price, smart_cf_fees, "
+            "actual_filled, actual_fees "
+            "FROM smart_counterfactuals WHERE ledger_id = ?",
+            (pos.counterfactual_id,),
+        )
+        if not rows:
+            return
+        row = rows[0]
+        def hypothetical(
+            contracts: float | None, price: float | None, fees: float | None,
+        ) -> float:
+            contracts = contracts or 0.0
+            if contracts <= 0 or price is None:
+                return 0.0
+            _, net = settle_position(
+                pos.side, contracts, price, fees or 0.0, result, DEFAULT_PAYOUT,
+            )
+            return round(net, 4)
+
+        self._update_counterfactual(
+            pos.counterfactual_id, settlement_result=result,
+            actual_pnl_net=round(actual_net, 4),
+            baseline_cf_pnl_net=hypothetical(
+                row["baseline_cf_filled"], row["baseline_cf_avg_price"],
+                row["baseline_cf_fees"],
+            ),
+            smart_cf_pnl_net=hypothetical(
+                row["smart_cf_filled"], row["smart_cf_avg_price"],
+                row["smart_cf_fees"],
+            ),
+            settled_ts=time.time(),
+        )
+
+    def _settle_counterfactual_sweep(self) -> None:
+        """Settle missed and smart-veto proposals that opened no position."""
+        rows = self.db.query(
+            "SELECT c.*, s.result FROM smart_counterfactuals c "
+            "JOIN settlements s ON s.market_ticker=c.market_ticker "
+            "WHERE c.settled_ts IS NULL AND c.execution='taker' "
+            "AND (COALESCE(c.baseline_cf_filled,0)>0 "
+            "OR COALESCE(c.smart_cf_filled,0)>0)"
+        )
+        for row in rows:
+            result = row["result"]
+            if result not in ("yes", "no"):
+                baseline_net = smart_net = 0.0
+            else:
+                side = "yes" if row["intent"] == OrderIntent.BUY_YES.value else "no"
+
+                def pnl(prefix: str) -> float:
+                    contracts = row[f"{prefix}_cf_filled"] or 0.0
+                    price = row[f"{prefix}_cf_avg_price"]
+                    if not contracts or price is None:
+                        return 0.0
+                    return round(settle_position(
+                        side, contracts, price, row[f"{prefix}_cf_fees"] or 0.0,
+                        result, DEFAULT_PAYOUT,
+                    )[1], 4)
+
+                baseline_net, smart_net = pnl("baseline"), pnl("smart")
+            self._update_counterfactual(
+                row["ledger_id"], settlement_result=result,
+                actual_pnl_net=row["actual_pnl_net"] or 0.0,
+                baseline_cf_pnl_net=baseline_net,
+                smart_cf_pnl_net=smart_net, settled_ts=time.time(),
+            )
 
     def _bump_daily_pnl(self, pos: OpenPosition, gross: float, net: float) -> None:
         day = time.strftime("%Y-%m-%d", time.gmtime())
