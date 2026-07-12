@@ -48,7 +48,7 @@ fi
 ln -s "$SHARED/.env" "$release/.env"
 
 sudo -u kalshi uv sync --frozen --all-extras --directory "$release"
-sudo -u kalshi "$release/.venv/bin/pytest" -q "$release/tests"
+(cd "$release" && sudo -u kalshi .venv/bin/pytest -q tests)
 sudo -u kalshi npm --prefix "$release/dashboard" ci
 sudo -u kalshi npm --prefix "$release/dashboard" run build
 
