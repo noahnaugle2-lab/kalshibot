@@ -99,7 +99,7 @@ Access. For emergency direct administration, use an SSH port-forward:
 
 Nightly retention archives aged tape rows to compressed Parquet. A separate
 systemd timer creates a transactionally consistent SQLite backup, verifies it,
-retains 14 local copies, and records freshness for the health gate. Set
+retains two local copies, and records freshness for the health gate. Set
 `BACKUP_RCLONE_DEST` to an encrypted off-host rclone destination. Hetzner
 snapshots do not include attached Volumes, so they are not a database backup.
 

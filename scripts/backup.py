@@ -21,7 +21,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, default=ROOT / "data/kalshibot.db")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "data/backups")
-    parser.add_argument("--keep", type=int, default=14)
+    # The live DB is currently ~8.4 GB on a 75 GB root disk. Two local copies
+    # provide immediate rollback without allowing backups to fill the server;
+    # longer retention belongs on BACKUP_RCLONE_DEST.
+    parser.add_argument("--keep", type=int, default=2)
     parser.add_argument("--verify-only", type=Path)
     args = parser.parse_args()
 
