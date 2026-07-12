@@ -63,6 +63,8 @@ cp "$CURRENT/deploy/systemd/kalshibot-backup.service" /etc/systemd/system/
 cp "$CURRENT/deploy/systemd/kalshibot-backup.timer" /etc/systemd/system/
 cp "$CURRENT/deploy/logrotate/kalshibot" /etc/logrotate.d/kalshibot
 cp "$CURRENT/deploy/sshd-hardening.conf" /etc/ssh/sshd_config.d/60-kalshibot-hardening.conf
+install -o root -g root -m 755 "$CURRENT/deploy/backup-n8n.sh" \
+    /usr/local/sbin/kalshibot-backup-n8n
 chown root:root /etc/logrotate.d/kalshibot
 chmod 644 /etc/logrotate.d/kalshibot
 sshd -t
