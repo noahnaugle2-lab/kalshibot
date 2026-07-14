@@ -193,6 +193,15 @@ class KalshiClient:
         data = await self._request("GET", "/portfolio/balance", auth_required=True)
         return Balance.model_validate(data)
 
+    async def get_api_keys(self) -> dict[str, Any]:
+        """Return the authenticated account's API key metadata.
+
+        The live executor uses this read-only endpoint to confirm that the
+        configured production key has write scope before it can submit an
+        order.  It deliberately does not infer scope from local config.
+        """
+        return await self._request("GET", "/api_keys", auth_required=True)
+
     async def get_positions(self, **params: Any) -> dict[str, Any]:
         return await self._request(
             "GET", "/portfolio/positions", params=params or None, auth_required=True

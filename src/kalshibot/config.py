@@ -28,6 +28,19 @@ class Settings(BaseSettings):
 
     mode: Mode = Field(default=Mode.SHADOW, alias="MODE")
 
+    # LIVE has two independent interlocks so setting MODE=LIVE by itself can
+    # never submit an order.  The confirmation string is intentionally exact
+    # rather than a truthy value, making accidental shell/environment leakage
+    # fail closed.
+    live_trading_enabled: bool = Field(default=False, alias="LIVE_TRADING_ENABLED")
+    live_trading_confirmation: str | None = Field(
+        default=None, alias="LIVE_TRADING_CONFIRMATION"
+    )
+    live_allowed_assets: str = Field(default="", alias="LIVE_ALLOWED_ASSETS")
+    live_max_contracts_per_order: int = Field(
+        default=1, ge=1, alias="LIVE_MAX_CONTRACTS_PER_ORDER"
+    )
+
     kalshi_key_id: str | None = Field(default=None, alias="KALSHI_KEY_ID")
     kalshi_private_key_path: Path | None = Field(
         default=None, alias="KALSHI_PRIVATE_KEY_PATH"

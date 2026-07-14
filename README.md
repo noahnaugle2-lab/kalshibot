@@ -20,6 +20,12 @@ disabled. Current strategy evaluation is concentrated on the enabled assets in
 | `DEMO` | Demo exchange | Real orders, fake money | Order plumbing tests only — never strategy evaluation |
 | `LIVE` | Production | Real money | Off until manually enabled after a 2-week shadow campaign |
 
+`MODE=LIVE` alone is deliberately insufficient. The live executor also
+requires `LIVE_TRADING_ENABLED=true`, the exact confirmation phrase
+`I_UNDERSTAND_REAL_ORDERS`, and a non-empty allowlist in
+`LIVE_ALLOWED_ASSETS`. Its initial order cap defaults to one contract. It is
+not part of the deployed shadow service.
+
 ## Setup
 
 ```bash

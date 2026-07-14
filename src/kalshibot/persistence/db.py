@@ -177,6 +177,42 @@ CREATE TABLE IF NOT EXISTS sim_positions (
 );
 CREATE INDEX IF NOT EXISTS idx_sim_positions_run ON sim_positions(run_id);
 
+-- Real-exchange records are intentionally separate from sim_* tables.  A
+-- shadow fill must never be indistinguishable from a funded position.
+CREATE TABLE IF NOT EXISTS live_orders (
+    client_order_id TEXT PRIMARY KEY,
+    order_id TEXT UNIQUE,
+    created_ts REAL NOT NULL,
+    updated_ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    limit_price REAL NOT NULL,
+    requested_contracts REAL NOT NULL,
+    filled_contracts REAL NOT NULL DEFAULT 0,
+    avg_fill_price REAL,
+    fees REAL,
+    status TEXT NOT NULL,         -- submit_unknown | filled | unfilled | partial | error
+    reason TEXT,
+    raw TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_live_orders_market ON live_orders(market_ticker, created_ts);
+CREATE INDEX IF NOT EXISTS idx_live_orders_status ON live_orders(status, updated_ts);
+
+CREATE TABLE IF NOT EXISTS live_positions (
+    market_ticker TEXT PRIMARY KEY,
+    asset TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    contracts REAL NOT NULL,
+    avg_price REAL NOT NULL,
+    fees REAL NOT NULL DEFAULT 0,
+    entry_ts REAL NOT NULL,
+    source_client_order_id TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL DEFAULT 'open', -- open | settled | externally_closed
+    updated_ts REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_live_positions_status ON live_positions(status, asset);
+
 CREATE TABLE IF NOT EXISTS smart_counterfactuals (
     ledger_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
