@@ -421,10 +421,17 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
             "GROUP BY asset, status ORDER BY asset, status"
         )]
         proposals = [dict(row) for row in db.query(
-            "SELECT proposal_id, created_ts, asset, market_ticker, strategy, intent, "
-            "execution, limit_price, requested_contracts, risk_contracts, status, reason "
-            "FROM live_proposals ORDER BY created_ts DESC LIMIT ?", (limit,)
+            "SELECT p.proposal_id, p.created_ts, p.asset, p.market_ticker, p.strategy, p.intent, "
+            "p.execution, p.limit_price, p.requested_contracts, p.risk_contracts, p.status, p.reason, "
+            "COALESCE(o.outcome_status, 'untracked') AS outcome_status, "
+            "o.expected_filled, o.hypothetical_pnl_net "
+            "FROM live_proposals p LEFT JOIN live_proposal_outcomes o ON o.proposal_id=p.proposal_id "
+            "ORDER BY p.created_ts DESC LIMIT ?", (limit,)
         )]
+        outcomes = db.query(
+            "SELECT COUNT(*) AS settled, COALESCE(SUM(hypothetical_pnl_net), 0) AS net "
+            "FROM live_proposal_outcomes WHERE outcome_status='settled'"
+        )[0]
         return {
             "reconciliation": reconciliation,
             "summary": {
@@ -434,6 +441,8 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
                 "open_live_positions": db.query(
                     "SELECT COUNT(*) AS n FROM live_positions WHERE status='open'"
                 )[0]["n"],
+                "settled_proposals": outcomes["settled"],
+                "hypothetical_net": round(outcomes["net"], 2),
             },
             "proposals": proposals,
         }

@@ -23,6 +23,7 @@ from kalshibot.kalshi.models import OrderIntent
 from kalshibot.observer import Observer
 from kalshibot.orders.risk import RiskManager
 from kalshibot.persistence.db import dump_json
+from kalshibot.sim.fills import DEFAULT_PAYOUT, settle_position, simulate_taker
 from kalshibot.smartmoney import signal as sm_signal
 from kalshibot.smartmoney.polymarket import PolymarketClient, live_lean
 from kalshibot.strategies.base import PositionState, Strategy
@@ -30,6 +31,7 @@ from kalshibot.strategies.library import build_strategy
 
 logger = logging.getLogger(__name__)
 SMART_MONEY_REFRESH_S = 60.0
+SETTLEMENT_CHECK_S = 60.0
 
 
 class LiveDryRunSupervisor(Observer):
@@ -160,6 +162,15 @@ class LiveDryRunSupervisor(Observer):
             contracts=row["contracts"], avg_price=row["avg_price"], entry_ts=row["entry_ts"],
         )
 
+    def _has_pending_proposal(self, ticker: str) -> bool:
+        """One hypothetical entry per market, matching the live entry policy."""
+        rows = self.db.query(
+            "SELECT 1 FROM live_proposals p JOIN live_proposal_outcomes o "
+            "ON o.proposal_id=p.proposal_id WHERE p.market_ticker=? "
+            "AND o.outcome_status='pending' LIMIT 1", (ticker,)
+        )
+        return bool(rows)
+
     @staticmethod
     def _opposing_depth(snap: FeatureSnapshot, intent: OrderIntent) -> float | None:
         if intent is OrderIntent.BUY_YES:
@@ -171,6 +182,8 @@ class LiveDryRunSupervisor(Observer):
     def on_snapshot(self, asset: str, snap: FeatureSnapshot) -> None:
         strategy = self.strategies.get(asset)
         if strategy is None:
+            return
+        if self._has_pending_proposal(snap.market_ticker):
             return
         signal = strategy.evaluate(snap, self._position_state(snap.market_ticker))
         if signal is None:
@@ -195,17 +208,81 @@ class LiveDryRunSupervisor(Observer):
                 risk_contracts = verdict.contracts
                 status = "dry_run" if verdict.approved else "risk_veto"
                 reason = note if verdict.approved and note else verdict.reason
+        proposal_id = uuid.uuid4().hex
         self.db.write_now("live_proposals", {
-            "proposal_id": uuid.uuid4().hex, "created_ts": snap.ts, "asset": asset,
+            "proposal_id": proposal_id, "created_ts": snap.ts, "asset": asset,
             "market_ticker": snap.market_ticker, "strategy": strategy.params_key(),
             "intent": signal.intent.value, "execution": signal.execution,
             "limit_price": signal.limit_price, "requested_contracts": signal.contracts,
             "risk_contracts": risk_contracts, "status": status, "reason": reason,
             "snapshot": dump_json(snap.model_dump(mode="json")),
         })
+        self._record_fill_assumption(proposal_id, asset, snap, signal, status, risk_contracts)
+
+    def _record_fill_assumption(
+        self, proposal_id: str, asset: str, snap: FeatureSnapshot, signal,
+        proposal_status: str, risk_contracts: float,
+    ) -> None:
+        """Persist the exact taker-fill model before the market can move."""
+        outcome_status = "not_approved"
+        filled = fees = 0.0
+        avg_price = None
+        assumption = "proposal was not risk-approved"
+        if proposal_status == "dry_run":
+            if signal.execution != "taker":
+                outcome_status = "unsupported"
+                assumption = "maker execution is not supported by the live executor"
+            else:
+                book = self.recorders[asset].latest_book
+                if book is None:
+                    outcome_status = "unfilled"
+                    assumption = "no captured order book at proposal time"
+                else:
+                    fill = simulate_taker(signal.intent, signal.limit_price, risk_contracts, book)
+                    filled = fill.filled
+                    avg_price = fill.avg_price
+                    fees = fill.total_fee
+                    outcome_status = "pending" if filled >= 1 else "unfilled"
+                    assumption = "IOC taker simulation against captured order book"
+        self.db.write_now("live_proposal_outcomes", {
+            "proposal_id": proposal_id, "recorded_ts": snap.ts,
+            "outcome_status": outcome_status, "expected_filled": filled,
+            "expected_avg_price": avg_price, "expected_fees": fees,
+            "fill_assumption": assumption,
+        })
 
     def extra_tasks(self) -> list:
-        return [self._smart_money_loop()]
+        return [self._smart_money_loop(), self._proposal_settle_loop()]
+
+    async def _proposal_settle_loop(self) -> None:
+        while True:
+            await asyncio.sleep(SETTLEMENT_CHECK_S)
+            self._settle_pending_proposals()
+
+    def _settle_pending_proposals(self) -> None:
+        rows = self.db.query(
+            "SELECT p.proposal_id, p.intent, o.expected_filled, o.expected_avg_price, "
+            "o.expected_fees, s.result FROM live_proposals p "
+            "JOIN live_proposal_outcomes o ON o.proposal_id=p.proposal_id "
+            "JOIN settlements s ON s.market_ticker=p.market_ticker "
+            "WHERE o.outcome_status='pending'"
+        )
+        for row in rows:
+            try:
+                intent = OrderIntent(row["intent"])
+                side = "yes" if intent is OrderIntent.BUY_YES else "no"
+                gross, net = settle_position(
+                    side, row["expected_filled"], row["expected_avg_price"],
+                    row["expected_fees"], row["result"], DEFAULT_PAYOUT,
+                )
+                self.db.write_now_sql(
+                    "UPDATE live_proposal_outcomes SET outcome_status='settled', "
+                    "settlement_result=?, payout_per_contract=?, hypothetical_pnl_gross=?, "
+                    "hypothetical_pnl_net=?, settled_ts=? WHERE proposal_id=?",
+                    (row["result"], DEFAULT_PAYOUT, gross, net, time.time(), row["proposal_id"]),
+                )
+            except Exception as exc:
+                logger.exception("failed to settle dry-run proposal %s: %s", row["proposal_id"], exc)
 
     async def _smart_money_loop(self) -> None:
         while True:

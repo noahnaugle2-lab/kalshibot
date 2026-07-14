@@ -230,6 +230,22 @@ CREATE TABLE IF NOT EXISTS live_proposals (
 );
 CREATE INDEX IF NOT EXISTS idx_live_proposals_market ON live_proposals(market_ticker, created_ts);
 
+CREATE TABLE IF NOT EXISTS live_proposal_outcomes (
+    proposal_id TEXT PRIMARY KEY,
+    recorded_ts REAL NOT NULL,
+    outcome_status TEXT NOT NULL, -- pending | unfilled | unsupported | not_approved | settled
+    expected_filled REAL NOT NULL DEFAULT 0,
+    expected_avg_price REAL,
+    expected_fees REAL NOT NULL DEFAULT 0,
+    fill_assumption TEXT NOT NULL,
+    settlement_result TEXT,
+    payout_per_contract REAL,
+    hypothetical_pnl_gross REAL,
+    hypothetical_pnl_net REAL,
+    settled_ts REAL
+);
+CREATE INDEX IF NOT EXISTS idx_live_proposal_outcomes_status ON live_proposal_outcomes(outcome_status, recorded_ts);
+
 CREATE TABLE IF NOT EXISTS live_reconciliations (
     id INTEGER PRIMARY KEY,
     run_ts REAL NOT NULL,

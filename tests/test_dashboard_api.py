@@ -112,6 +112,7 @@ def test_live_dry_run_is_read_only_and_omits_exchange_raw_payloads(client, trade
     assert "external_positions" not in body["reconciliation"]
     assert body["summary"]["proposal_counts"] == {"dry_run": 1}
     assert body["proposals"][0]["proposal_id"] == "proposal-1"
+    assert body["proposals"][0]["outcome_status"] == "untracked"
     assert body["summary"]["live_orders"] == 0
 
 
