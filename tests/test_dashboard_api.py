@@ -72,7 +72,7 @@ def auth() -> dict:
 
 def test_all_api_routes_require_auth(client):
     for path in ("/api/status", "/api/live", "/api/leaderboard", "/api/trades",
-                 "/api/equity", "/api/smartmoney", "/api/config"):
+                 "/api/equity", "/api/smartmoney", "/api/live-dry-run", "/api/config"):
         assert client.get(path).status_code == 401, path
     assert client.post("/api/control/kill").status_code == 401
     assert client.get("/api/status", headers={"Authorization": "Bearer wrong"}).status_code == 401
@@ -94,6 +94,25 @@ def test_live_handles_no_market(client):
     [row] = client.get("/api/live", headers=auth()).json()
     assert row["asset"] == "BTC" and row["market"] is None
     assert row["smart_money"]["lean"] == "NEUTRAL"
+
+
+def test_live_dry_run_is_read_only_and_omits_exchange_raw_payloads(client, trader):
+    trader.db.write_now("live_reconciliations", {
+        "run_ts": 100.0, "status": "ok", "external_positions": '{"secret":"never"}',
+        "external_orders": '[]', "detail": '{"local_position_tickers":[]}',
+    })
+    trader.db.write_now("live_proposals", {
+        "proposal_id": "proposal-1", "created_ts": 101.0, "asset": "BTC",
+        "market_ticker": "M1", "strategy": "latency_momentum:v1", "intent": "BUY_YES",
+        "execution": "taker", "limit_price": 0.42, "requested_contracts": 5,
+        "risk_contracts": 2, "status": "dry_run", "reason": "ok", "snapshot": '{}',
+    })
+    body = client.get("/api/live-dry-run", headers=auth()).json()
+    assert body["reconciliation"]["status"] == "ok"
+    assert "external_positions" not in body["reconciliation"]
+    assert body["summary"]["proposal_counts"] == {"dry_run": 1}
+    assert body["proposals"][0]["proposal_id"] == "proposal-1"
+    assert body["summary"]["live_orders"] == 0
 
 
 def test_leaderboard_rows(client):

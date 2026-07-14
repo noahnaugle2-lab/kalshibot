@@ -8,6 +8,7 @@ import { useApp } from '../store/store';
 
 const TABS: Array<[string, string]> = [
   ['/', 'LIVE'],
+  ['/live-dry-run', 'DRY RUN'],
   ['/leaderboard', 'LEADERBOARD'],
   ['/smartmoney', 'SMART MONEY'],
   ['/history', 'HISTORY'],

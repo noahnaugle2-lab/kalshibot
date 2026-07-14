@@ -387,6 +387,57 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
         }
         return {"patterns": patterns, "wallets": wallets, "merged_leans": merged}
 
+    # --------------------------------------------------------- live dry run
+
+    @app.get("/api/live-dry-run", dependencies=[Depends(require_auth)])
+    def live_dry_run(limit: int = Query(100, ge=1, le=250)) -> dict:
+        """Read-only production-path rehearsal telemetry.
+
+        This intentionally excludes raw exchange API payloads and all
+        credential material. The supervisor is the only writer for proposals;
+        the dashboard only reads the durable audit rows.
+        """
+        latest = db.query(
+            "SELECT run_ts, status, detail FROM live_reconciliations "
+            "ORDER BY id DESC LIMIT 1"
+        )
+        reconciliation = None
+        if latest:
+            row = latest[0]
+            try:
+                detail = json.loads(row["detail"])
+            except (TypeError, ValueError, json.JSONDecodeError):
+                detail = {"parse_error": True}
+            reconciliation = {
+                "run_ts": row["run_ts"], "status": row["status"], "detail": detail,
+            }
+        counts = {
+            row["status"]: row["n"] for row in db.query(
+                "SELECT status, COUNT(*) AS n FROM live_proposals GROUP BY status"
+            )
+        }
+        by_asset = [dict(row) for row in db.query(
+            "SELECT asset, status, COUNT(*) AS n FROM live_proposals "
+            "GROUP BY asset, status ORDER BY asset, status"
+        )]
+        proposals = [dict(row) for row in db.query(
+            "SELECT proposal_id, created_ts, asset, market_ticker, strategy, intent, "
+            "execution, limit_price, requested_contracts, risk_contracts, status, reason "
+            "FROM live_proposals ORDER BY created_ts DESC LIMIT ?", (limit,)
+        )]
+        return {
+            "reconciliation": reconciliation,
+            "summary": {
+                "proposal_counts": counts,
+                "by_asset": by_asset,
+                "live_orders": db.query("SELECT COUNT(*) AS n FROM live_orders")[0]["n"],
+                "open_live_positions": db.query(
+                    "SELECT COUNT(*) AS n FROM live_positions WHERE status='open'"
+                )[0]["n"],
+            },
+            "proposals": proposals,
+        }
+
     # ------------------------------------------------------------- config
 
     @app.get("/api/config", dependencies=[Depends(require_auth)])

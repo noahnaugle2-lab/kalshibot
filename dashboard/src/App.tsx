@@ -10,6 +10,7 @@ import { LeaderboardView } from './views/leaderboard/LeaderboardView';
 import { LiveView } from './views/live/LiveView';
 import { LoginView } from './views/login/LoginView';
 import { SmartMoneyView } from './views/smartmoney/SmartMoneyView';
+import { LiveDryRunView } from './views/live/LiveDryRunView';
 
 // Routed views live inside an ErrorBoundary so a render crash (e.g. an
 // unexpected null in a live payload) shows an inline panel instead of
@@ -23,6 +24,7 @@ function RoutedViews() {
         <Route path="/" element={<LiveView />} />
         <Route path="/leaderboard" element={<LeaderboardView />} />
         <Route path="/smartmoney" element={<SmartMoneyView />} />
+        <Route path="/live-dry-run" element={<LiveDryRunView />} />
         <Route path="/history" element={<HistoryView />} />
         <Route path="/config" element={<ConfigView />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -12,6 +12,7 @@ import type {
   LeaderboardBasis,
   LeaderboardResponse,
   LiveAsset,
+  LiveDryRunResponse,
   Regime,
   SmartMoneyFilter,
   SmartMoneyResponse,
@@ -235,6 +236,10 @@ export const api = {
 
   smartmoney(): Promise<SmartMoneyResponse> {
     return IS_MOCK ? mockCall(mock.getSmartMoney) : http<SmartMoneyResponse>('/smartmoney');
+  },
+
+  liveDryRun(): Promise<LiveDryRunResponse> {
+    return http<LiveDryRunResponse>('/live-dry-run');
   },
 
   config(): Promise<FullConfig> {

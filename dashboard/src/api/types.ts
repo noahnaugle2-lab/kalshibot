@@ -205,6 +205,37 @@ export interface SmartMoneyResponse {
   merged_leans: Partial<Record<Asset, { lean: Lean; strength: number }>>;
 }
 
+// ---- GET /api/live-dry-run ----
+export type LiveProposalStatus = 'dry_run' | 'risk_veto' | 'blocked_reconciliation';
+export interface LiveDryRunProposal {
+  proposal_id: string;
+  created_ts: number;
+  asset: Asset;
+  market_ticker: string;
+  strategy: string;
+  intent: 'BUY_YES' | 'BUY_NO';
+  execution: string;
+  limit_price: number;
+  requested_contracts: number;
+  risk_contracts: number;
+  status: LiveProposalStatus;
+  reason: string | null;
+}
+export interface LiveDryRunResponse {
+  reconciliation: {
+    run_ts: number;
+    status: 'ok' | 'mismatch' | 'error';
+    detail: Record<string, unknown>;
+  } | null;
+  summary: {
+    proposal_counts: Partial<Record<LiveProposalStatus, number>>;
+    by_asset: { asset: Asset; status: LiveProposalStatus; n: number }[];
+    live_orders: number;
+    open_live_positions: number;
+  };
+  proposals: LiveDryRunProposal[];
+}
+
 // ---- Config ----
 export interface AssetConfig {
   enabled: boolean;
