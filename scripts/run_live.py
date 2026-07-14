@@ -22,7 +22,7 @@ async def amain() -> None:
     settings = Settings()
     db = Database("data/kalshibot.db")
     try:
-        signer = (KalshiSigner(settings.kalshi_key_id, settings.kalshi_private_key_path)
+        signer = (KalshiSigner.from_pem_file(settings.kalshi_key_id, settings.kalshi_private_key_path)
                   if settings.kalshi_key_id and settings.kalshi_private_key_path else None)
         async with KalshiClient(KalshiEnvironment.PROD, signer=signer) as client:
             await LiveTrader(settings, db, client).prepare()

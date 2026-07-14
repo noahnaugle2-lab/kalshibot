@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     live_max_contracts_per_order: int = Field(
         default=1, ge=1, alias="LIVE_MAX_CONTRACTS_PER_ORDER"
     )
+    # A separate observer companion that evaluates the production execution
+    # path but records proposals only. It must remain SHADOW mode.
+    live_dry_run_enabled: bool = Field(default=False, alias="LIVE_DRY_RUN_ENABLED")
 
     kalshi_key_id: str | None = Field(default=None, alias="KALSHI_KEY_ID")
     kalshi_private_key_path: Path | None = Field(

@@ -213,6 +213,33 @@ CREATE TABLE IF NOT EXISTS live_positions (
 );
 CREATE INDEX IF NOT EXISTS idx_live_positions_status ON live_positions(status, asset);
 
+CREATE TABLE IF NOT EXISTS live_proposals (
+    proposal_id TEXT PRIMARY KEY,
+    created_ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    execution TEXT NOT NULL,
+    limit_price REAL NOT NULL,
+    requested_contracts REAL NOT NULL,
+    risk_contracts REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,         -- dry_run | risk_veto | blocked_reconciliation
+    reason TEXT,
+    snapshot TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_live_proposals_market ON live_proposals(market_ticker, created_ts);
+
+CREATE TABLE IF NOT EXISTS live_reconciliations (
+    id INTEGER PRIMARY KEY,
+    run_ts REAL NOT NULL,
+    status TEXT NOT NULL,         -- ok | mismatch | error
+    external_positions TEXT,
+    external_orders TEXT,
+    detail TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_live_reconciliations_ts ON live_reconciliations(run_ts);
+
 CREATE TABLE IF NOT EXISTS smart_counterfactuals (
     ledger_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,

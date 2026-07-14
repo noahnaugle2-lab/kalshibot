@@ -26,6 +26,12 @@ requires `LIVE_TRADING_ENABLED=true`, the exact confirmation phrase
 `LIVE_ALLOWED_ASSETS`. Its initial order cap defaults to one contract. It is
 not part of the deployed shadow service.
 
+For a production-path rehearsal without submitting orders, set
+`LIVE_DRY_RUN_ENABLED=true` while retaining `MODE=SHADOW` and run
+`scripts/run_live_dry_run.py`. The supervisor requires authenticated
+production read access, reconciles exchange positions/orders against the
+local live ledger at startup, and records only `live_proposals`.
+
 ## Setup
 
 ```bash
