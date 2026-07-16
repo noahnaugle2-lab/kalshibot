@@ -50,6 +50,24 @@ class Strategy(abc.ABC):
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         self.params: dict[str, Any] = params or {}
+        configured = self.params.get("active_regimes")
+        if configured is not None:
+            if not isinstance(configured, (list, tuple, set, frozenset)) or not configured:
+                raise ValueError("active_regimes must be a non-empty sequence")
+            try:
+                requested = frozenset(
+                    item if isinstance(item, Regime) else Regime(str(item).upper())
+                    for item in configured
+                )
+            except ValueError as exc:
+                raise ValueError(f"invalid active_regimes: {configured}") from exc
+            allowed = type(self).active_regimes
+            if not requested.issubset(allowed):
+                raise ValueError(
+                    f"active_regimes {sorted(r.value for r in requested)} exceed "
+                    f"strategy regimes {sorted(r.value for r in allowed)}"
+                )
+            self.active_regimes = requested
 
     def params_key(self) -> str:
         """Stable identity of this strategy+parameterization for versioning."""

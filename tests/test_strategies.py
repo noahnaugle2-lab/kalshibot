@@ -64,6 +64,29 @@ def test_cross_asset_lead_lag_uses_btc_return():
     assert s.evaluate(snap(btc_ret_30s=None, edge_yes_net=0.03), flat()) is None
 
 
+def test_strategy_params_can_narrow_active_regimes():
+    s = build_strategy("cross_asset_lead_lag", {
+        "btc_move_threshold": 0.0008,
+        "active_regimes": ["MID", "LATE"],
+    })
+    assert s.evaluate(
+        snap(regime=Regime.EARLY, btc_ret_30s=0.001, edge_yes_net=0.03), flat(),
+    ) is None
+    assert s.evaluate(
+        snap(regime=Regime.MID, btc_ret_30s=0.001, edge_yes_net=0.03), flat(),
+    ) is not None
+    assert s.active_regimes == frozenset({Regime.MID, Regime.LATE})
+
+
+def test_strategy_params_cannot_expand_or_empty_active_regimes():
+    with pytest.raises(ValueError, match="non-empty"):
+        build_strategy("cross_asset_lead_lag", {"active_regimes": []})
+    with pytest.raises(ValueError, match="exceed"):
+        build_strategy("mean_reversion_extremes", {"active_regimes": ["LATE"]})
+    with pytest.raises(ValueError, match="invalid"):
+        build_strategy("cross_asset_lead_lag", {"active_regimes": ["NOPE"]})
+
+
 def test_mean_reversion_fades_extreme_near_strike():
     s = build_strategy("mean_reversion_extremes", {"extreme": 0.85})
     signal = s.evaluate(
