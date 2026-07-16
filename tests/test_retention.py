@@ -2,6 +2,7 @@
 
 import time
 
+import pyarrow as pa
 import pytest
 
 import kalshibot.persistence.retention as retention
@@ -123,7 +124,6 @@ def test_existing_archive_finishes_interrupted_delete_without_duplicates(db, tmp
     # Simulate the safe crash point: final archive exists, source row remains.
     rows = db.query("SELECT asset, ts, trade_id, market_ticker, yes_price, count, "
                     "taker_side, raw FROM trade_tape")
-    import pyarrow as pa
     import pyarrow.parquet as pq
     out = archive / "trade_tape"
     out.mkdir(parents=True)
@@ -136,3 +136,32 @@ def test_existing_archive_finishes_interrupted_delete_without_duplicates(db, tmp
     assert result["total_archived"] == 1
     assert read_archive(archive, "trade_tape", day).num_rows == 1
     assert db.query("SELECT COUNT(*) AS n FROM trade_tape")[0]["n"] == 0
+
+
+def test_null_only_batch_uses_declared_sqlite_schema(db, tmp_path, monkeypatch):
+    now = time.time()
+    old = now - 40 * DAY
+    archive = tmp_path / "archive"
+    monkeypatch.setattr(retention, "ARCHIVE_BATCH_ROWS", 1)
+    for offset, mid in enumerate((0.5, None, 0.6)):
+        db.write_now("book_snapshots", {
+            "ts": old + offset,
+            "market_ticker": "M",
+            "asset": "BTC",
+            "yes_bids": "[]",
+            "no_bids": "[]",
+            "best_yes_bid": mid,
+            "best_yes_ask": mid,
+            "mid": mid,
+            "spread": None if mid is None else 0.02,
+        })
+
+    result = run_retention(
+        db, retention_days=30, archive_dir=archive, now=now, vacuum=False,
+    )
+
+    day = time.strftime("%Y-%m-%d", time.gmtime(old))
+    table = read_archive(archive, "book_snapshots", day)
+    assert result["total_archived"] == 3
+    assert table.num_rows == 3
+    assert table.schema.field("mid").type == pa.float64()

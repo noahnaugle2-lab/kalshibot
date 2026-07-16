@@ -91,11 +91,34 @@ def _columns(db: Database, table: str) -> list[str]:
     return [r["name"] for r in rows]
 
 
+def _arrow_schema(db: Database, table: str) -> pa.Schema:
+    """Map declared SQLite column types to a stable Parquet schema.
+
+    Inferring each batch independently is unsafe because a numeric column can
+    be entirely NULL in one batch and become Arrow ``null`` instead of
+    ``double``.
+    """
+    sqlite_types = {
+        "INTEGER": pa.int64(),
+        "REAL": pa.float64(),
+        "FLOAT": pa.float64(),
+        "DOUBLE": pa.float64(),
+        "TEXT": pa.string(),
+        "BLOB": pa.binary(),
+    }
+    fields = []
+    for row in db.query(f"PRAGMA table_info({table})"):
+        declared = (row["type"] or "TEXT").upper().split("(", 1)[0]
+        fields.append(pa.field(row["name"], sqlite_types.get(declared, pa.string())))
+    return pa.schema(fields)
+
+
 def archive_table(
     db: Database, table: str, cutoff_ts: float, archive_dir: Path
 ) -> dict:
     """Archive+prune one table's rows with ts < cutoff_ts. Returns a summary."""
     cols = _columns(db, table)
+    schema = _arrow_schema(db, table)
     if "ts" not in cols:
         return {"table": table, "archived": 0, "days": 0, "skipped": "no ts column"}
 
@@ -152,9 +175,11 @@ def archive_table(
                         if not rows:
                             break
                         cursor = rows[-1]["__rowid__"]
-                        arrow = pa.table({c: [r[c] for r in rows] for c in cols})
+                        arrow = pa.table(
+                            {c: [r[c] for r in rows] for c in cols}, schema=schema,
+                        )
                         if writer is None:
-                            writer = pq.ParquetWriter(tmp, arrow.schema, compression="zstd")
+                            writer = pq.ParquetWriter(tmp, schema, compression="zstd")
                         writer.write_table(arrow)
                         written += len(rows)
                 finally:
