@@ -122,7 +122,7 @@ def test_existing_archive_finishes_interrupted_delete_without_duplicates(db, tmp
     day = time.strftime("%Y-%m-%d", time.gmtime(old_ts))
 
     # Simulate the safe crash point: final archive exists, source row remains.
-    rows = db.query("SELECT asset, ts, trade_id, market_ticker, yes_price, count, "
+    rows = db.query("SELECT id, asset, ts, trade_id, market_ticker, yes_price, count, "
                     "taker_side, raw FROM trade_tape")
     import pyarrow.parquet as pq
     out = archive / "trade_tape"
@@ -136,6 +136,37 @@ def test_existing_archive_finishes_interrupted_delete_without_duplicates(db, tmp
     assert result["total_archived"] == 1
     assert read_archive(archive, "trade_tape", day).num_rows == 1
     assert db.query("SELECT COUNT(*) AS n FROM trade_tape")[0]["n"] == 0
+
+
+def test_existing_partial_partition_merges_new_higher_ids(db, tmp_path):
+    now = time.time()
+    archive = tmp_path / "archive"
+    old_ts = now - 40 * DAY
+    _seed(db, "trade_tape", old_ts, trade_id="first")
+    first = db.query("SELECT * FROM trade_tape")[0]
+    day = time.strftime("%Y-%m-%d", time.gmtime(old_ts))
+    out = archive / "trade_tape"
+    out.mkdir(parents=True)
+    import pyarrow.parquet as pq
+    pq.write_table(
+        pa.table({k: [first[k]] for k in first.keys()}), out / f"{day}.parquet",
+    )
+    # Append-only production tables retain newer rows, so SQLite ids remain
+    # monotonic even after an archived source row is deleted.
+    _seed(db, "trade_tape", now - DAY, trade_id="recent")
+    db.execute_write("DELETE FROM trade_tape WHERE id=?", (first["id"],))
+    _seed(db, "trade_tape", old_ts + 10, trade_id="second")
+
+    result = run_retention(
+        db, retention_days=30, archive_dir=archive, now=now, vacuum=False,
+    )
+
+    table = read_archive(archive, "trade_tape", day)
+    assert result["total_archived"] == 1
+    assert table.num_rows == 2
+    assert set(table.column("trade_id").to_pylist()) == {"first", "second"}
+    remaining = db.query("SELECT trade_id FROM trade_tape")
+    assert [row["trade_id"] for row in remaining] == ["recent"]
 
 
 def test_null_only_batch_uses_declared_sqlite_schema(db, tmp_path, monkeypatch):

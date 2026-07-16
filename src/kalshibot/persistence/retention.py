@@ -113,6 +113,20 @@ def _arrow_schema(db: Database, table: str) -> pa.Schema:
     return pa.schema(fields)
 
 
+def _parquet_max_id(parquet: pq.ParquetFile) -> int:
+    """Return the largest archived SQLite id without loading the column."""
+    index = parquet.schema_arrow.get_field_index("id")
+    if index < 0:
+        raise RuntimeError("archive is missing required id column")
+    maxima = []
+    for group in range(parquet.metadata.num_row_groups):
+        stats = parquet.metadata.row_group(group).column(index).statistics
+        if stats is None or not stats.has_min_max:
+            raise RuntimeError("archive id column is missing Parquet statistics")
+        maxima.append(int(stats.max))
+    return max(maxima, default=0)
+
+
 def archive_table(
     db: Database, table: str, cutoff_ts: float, archive_dir: Path
 ) -> dict:
@@ -149,22 +163,23 @@ def archive_table(
         if row_count:
             final = out_dir / f"{day}.parquet"
             tmp = out_dir / f".{day}.parquet.tmp"
-            if final.exists():
-                # A final archive is published before deletes begin. If a prior
-                # run died during deletion, the remaining DB rows are already
-                # safe in that archive and must not be appended a second time.
-                archived = pq.ParquetFile(final).metadata.num_rows
-                if archived < row_count:
-                    raise RuntimeError(
-                        f"existing archive {final} has {archived} rows but "
-                        f"database still has {row_count}; refusing to prune"
-                    )
-            else:
+            existing = pq.ParquetFile(final) if final.exists() else None
+            cursor = _parquet_max_id(existing) if existing is not None else 0
+            new_count_rows = db.query(
+                f"SELECT COUNT(*) AS n FROM {table} "
+                "WHERE ts >= ? AND ts < ? AND rowid > ?",
+                (day_start, hi, cursor),
+            )
+            new_count = new_count_rows[0]["n"] if new_count_rows else 0
+            if existing is None or new_count:
                 tmp.unlink(missing_ok=True)
                 writer: pq.ParquetWriter | None = None
-                cursor = 0
-                written = 0
+                written_new = 0
                 try:
+                    if existing is not None:
+                        writer = pq.ParquetWriter(tmp, schema, compression="zstd")
+                        for batch in existing.iter_batches(batch_size=ARCHIVE_BATCH_ROWS):
+                            writer.write_table(pa.Table.from_batches([batch]).cast(schema))
                     while True:
                         rows = db.query(
                             f"SELECT rowid AS __rowid__, {col_list} FROM {table} "
@@ -181,7 +196,7 @@ def archive_table(
                         if writer is None:
                             writer = pq.ParquetWriter(tmp, schema, compression="zstd")
                         writer.write_table(arrow)
-                        written += len(rows)
+                        written_new += len(rows)
                 finally:
                     if writer is not None:
                         writer.close()
@@ -190,11 +205,11 @@ def archive_table(
                     del rows, arrow
                 except UnboundLocalError:
                     pass
-                if written != row_count:
+                if written_new != new_count:
                     tmp.unlink(missing_ok=True)
                     raise RuntimeError(
                         f"archive row count changed for {table} {day}: "
-                        f"expected {row_count}, wrote {written}"
+                        f"expected {new_count} new rows, wrote {written_new}"
                     )
                 tmp.replace(final)  # atomic: rows are safe before deletion
             # Batched indexed deletes keep each write-lock hold short.
@@ -220,7 +235,11 @@ def run_retention(
     from kalshibot.config import PROJECT_ROOT
 
     archive_dir = archive_dir or PROJECT_ROOT / "data" / "archive"
-    cutoff = (now if now is not None else time.time()) - retention_days * 86400
+    raw_cutoff = (now if now is not None else time.time()) - retention_days * 86400
+    # Only publish complete UTC-day partitions. This avoids revisiting a
+    # growing partial-day archive on each daily run; effective hot retention
+    # is retention_days to retention_days+1.
+    cutoff = _utc_midnight(raw_cutoff)
     summaries = [archive_table(db, t, cutoff, archive_dir) for t in ARCHIVABLE_TABLES]
     total = sum(s["archived"] for s in summaries)
     vacuumed = False
