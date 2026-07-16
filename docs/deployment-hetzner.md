@@ -25,7 +25,7 @@ class we hit at home (DNS drop, launchd/TCC breakage, no supervision).
 | **Location** | **Ashburn, VA (US-East)** or Hillsboro, OR | Kalshi/Coinbase are US; also un-blocks `binance.us` backup feed (an EU IP geo-blocks it) |
 | **Type** | **CAX21** (ARM, 4 vCPU / 8 GB / 80 GB) ≈ €7/mo, or **CX32** (x86, same specs) ≈ €7/mo | stack needs ~700 MB RAM; disk is the real driver |
 | Image | Ubuntu 24.04 LTS | systemd, current Python |
-| Volume | add a 100–200 GB block volume (~€0.05/GB/mo) **or** rely on the retention job (§6) | the SQLite tape grows ~0.3–0.5 GB/day |
+| Volume | add a 100–200 GB block volume (~€0.05/GB/mo) **or** rely on the retention job (§6) | production tape can grow by multiple GB/day |
 
 > **ARM note:** CAX21 is ARM64. Everything we run is ARM-clean (Python wheels,
 > n8n image, cloudflared arm64). Pick CX32 (x86) only if you'd rather not
@@ -97,8 +97,10 @@ Access. For emergency direct administration, use an SSH port-forward:
 
 ## 6. Retention and independent backups
 
-Nightly retention archives aged tape rows to compressed Parquet. A separate
-systemd timer creates a transactionally consistent SQLite backup, verifies it,
+Daily retention keeps seven hot days by default, archives older tape rows to
+compressed Parquet, and prunes them without an automatic exclusive `VACUUM`.
+Run a controlled maintenance-window compaction after changing the retention
+window. A separate systemd timer creates a transactionally consistent SQLite backup, verifies it,
 retains two local copies, and records freshness for the health gate. Set
 `BACKUP_RCLONE_DEST` to an encrypted off-host rclone destination. Hetzner
 snapshots do not include attached Volumes, so they are not a database backup.
@@ -106,6 +108,7 @@ snapshots do not include attached Volumes, so they are not a database backup.
 ```bash
 systemctl start kalshibot-backup.service
 .venv/bin/python scripts/backup.py --verify-only data/backups/<backup>.db
+systemctl start kalshibot-retention.service
 ```
 
 ## 7. Supervision — systemd units (replaces launchd)

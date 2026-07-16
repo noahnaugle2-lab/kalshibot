@@ -1,0 +1,24 @@
+[Unit]
+Description=Archive aged KalshiBot tape and prune the hot database
+After=kalshibot.service
+
+[Service]
+Type=oneshot
+User=kalshi
+WorkingDirectory=/home/kalshi/kalshibot
+EnvironmentFile=-/home/kalshi/kalshibot/.env
+ExecStart=/home/kalshi/kalshibot/.venv/bin/python scripts/retention.py --no-vacuum
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/home/kalshi/kalshibot/data
+MemoryMax=1500M
+TasksMax=64

@@ -122,6 +122,8 @@ data/                     runtime data (gitignored)
   loop, DB, disk capacity, backup freshness, and write backlog are healthy;
   unhealthy states ping `/fail` with reasons. Critical disk pressure engages
   the kill switch.
+- **Retention**: `kalshibot-retention.timer` keeps seven hot days in SQLite and
+  archives older high-volume tape to compressed Parquet before the backup run.
 - **Backups**: `kalshibot-backup.timer` creates a verified SQLite backup nightly.
   Set `BACKUP_RCLONE_DEST` for off-host copies and test restores regularly.
 - **Supervision**: launchd plists in `deploy/launchd/` (bot + tunnel,

@@ -68,6 +68,8 @@ cp "$APP_DIR/deploy/systemd/kalshibot-live-dry-run.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/systemd/kalshibot-tunnel.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/systemd/kalshibot-backup.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/systemd/kalshibot-backup.timer" /etc/systemd/system/
+cp "$APP_DIR/deploy/systemd/kalshibot-retention.service" /etc/systemd/system/
+cp "$APP_DIR/deploy/systemd/kalshibot-retention.timer" /etc/systemd/system/
 cp "$APP_DIR/deploy/logrotate/kalshibot" /etc/logrotate.d/kalshibot
 cp "$APP_DIR/deploy/sshd-hardening.conf" /etc/ssh/sshd_config.d/60-kalshibot-hardening.conf
 install -o root -g root -m 755 "$APP_DIR/deploy/backup-n8n.sh" \
@@ -107,7 +109,8 @@ Bootstrap complete. Remaining manual steps (need your input):
    /home/kalshi/kalshibot/data/ (copy while the home trader is stopped).
 
 5. Start it:
-     systemctl enable --now kalshibot kalshibot-tunnel kalshibot-backup.timer
+     systemctl enable --now kalshibot kalshibot-tunnel \
+       kalshibot-backup.timer kalshibot-retention.timer
      journalctl -u kalshibot -f
 
 6. Route DNS + verify exposure checklist (README):

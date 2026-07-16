@@ -62,6 +62,8 @@ cp "$CURRENT/deploy/systemd/kalshibot-live-dry-run.service" /etc/systemd/system/
 cp "$CURRENT/deploy/systemd/kalshibot-tunnel.service" /etc/systemd/system/
 cp "$CURRENT/deploy/systemd/kalshibot-backup.service" /etc/systemd/system/
 cp "$CURRENT/deploy/systemd/kalshibot-backup.timer" /etc/systemd/system/
+cp "$CURRENT/deploy/systemd/kalshibot-retention.service" /etc/systemd/system/
+cp "$CURRENT/deploy/systemd/kalshibot-retention.timer" /etc/systemd/system/
 cp "$CURRENT/deploy/logrotate/kalshibot" /etc/logrotate.d/kalshibot
 cp "$CURRENT/deploy/sshd-hardening.conf" /etc/ssh/sshd_config.d/60-kalshibot-hardening.conf
 install -o root -g root -m 755 "$CURRENT/deploy/backup-n8n.sh" \
@@ -71,7 +73,7 @@ chmod 644 /etc/logrotate.d/kalshibot
 sshd -t
 systemctl reload ssh
 systemctl daemon-reload
-systemctl enable --now kalshibot-backup.timer
+systemctl enable --now kalshibot-backup.timer kalshibot-retention.timer
 (cd "$CURRENT/deploy" && docker compose up -d n8n)
 deluser kalshi sudo 2>/dev/null || true
 deluser kalshi docker 2>/dev/null || true
