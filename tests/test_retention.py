@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+import kalshibot.persistence.retention as retention
 from kalshibot.persistence.db import Database
 from kalshibot.persistence.retention import (
     read_archive,
@@ -90,3 +91,45 @@ def test_rerun_is_idempotent(db, tmp_path):
     # second run finds nothing to archive (rows already pruned)
     result = run_retention(db, retention_days=30, archive_dir=archive, now=now)
     assert result["total_archived"] == 0
+
+
+def test_archive_streams_multiple_batches(db, tmp_path, monkeypatch):
+    now = time.time()
+    archive = tmp_path / "archive"
+    monkeypatch.setattr(retention, "ARCHIVE_BATCH_ROWS", 2)
+    for offset in range(5):
+        _seed(db, "trade_tape", now - 40 * DAY + offset)
+
+    result = run_retention(
+        db, retention_days=30, archive_dir=archive, now=now, vacuum=False,
+    )
+
+    assert result["total_archived"] == 5
+    day = time.strftime("%Y-%m-%d", time.gmtime(now - 40 * DAY))
+    assert read_archive(archive, "trade_tape", day).num_rows == 5
+    assert db.query("SELECT COUNT(*) AS n FROM trade_tape")[0]["n"] == 0
+
+
+def test_existing_archive_finishes_interrupted_delete_without_duplicates(db, tmp_path):
+    now = time.time()
+    archive = tmp_path / "archive"
+    old_ts = now - 40 * DAY
+    _seed(db, "trade_tape", old_ts)
+    day = time.strftime("%Y-%m-%d", time.gmtime(old_ts))
+
+    # Simulate the safe crash point: final archive exists, source row remains.
+    rows = db.query("SELECT asset, ts, trade_id, market_ticker, yes_price, count, "
+                    "taker_side, raw FROM trade_tape")
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    out = archive / "trade_tape"
+    out.mkdir(parents=True)
+    pq.write_table(pa.table({k: [rows[0][k]] for k in rows[0].keys()}), out / f"{day}.parquet")
+
+    result = run_retention(
+        db, retention_days=30, archive_dir=archive, now=now, vacuum=False,
+    )
+
+    assert result["total_archived"] == 1
+    assert read_archive(archive, "trade_tape", day).num_rows == 1
+    assert db.query("SELECT COUNT(*) AS n FROM trade_tape")[0]["n"] == 0

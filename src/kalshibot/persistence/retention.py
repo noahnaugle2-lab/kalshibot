@@ -14,8 +14,9 @@ every archived row count is logged.
 Safety: a day is written to a temp file and atomically renamed BEFORE its
 rows are deleted, so a crash mid-archive never loses data (worst case: a day
 re-archives on the next run, which is idempotent for >retention_days-old
-rows since no new rows arrive for a past day). VACUUM runs once at the end to
-return freed pages to the filesystem.
+rows since no new rows arrive for a past day). Archive writes are streamed in
+bounded batches so a busy tape day cannot exhaust the VPS memory. VACUUM runs
+once at the end to return freed pages to the filesystem.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ DEFAULT_RETENTION_DAYS = 30
 
 
 DELETE_BATCH = 5000  # rows per delete statement — keeps each write-lock hold short
+ARCHIVE_BATCH_ROWS = 25_000  # bounded Arrow materialization on the 4 GB VPS
 
 
 def _utc_day(ts: float) -> str:
@@ -99,25 +101,58 @@ def archive_table(
         day_end = day_start + 86400
         hi = min(day_end, cutoff_ts)
         day = _utc_day(day_start)
-        rows = db.query(
-            f"SELECT {col_list} FROM {table} WHERE ts >= ? AND ts < ? ORDER BY ts",
+        count_rows = db.query(
+            f"SELECT COUNT(*) AS n FROM {table} WHERE ts >= ? AND ts < ?",
             (day_start, hi),
         )
-        if rows:
-            columns = {c: [r[c] for r in rows] for c in cols}
-            arrow = pa.table(columns)
+        row_count = count_rows[0]["n"] if count_rows else 0
+        if row_count:
             final = out_dir / f"{day}.parquet"
             tmp = out_dir / f".{day}.parquet.tmp"
             if final.exists():
-                # merge with what's already archived for this day (re-run safety)
-                existing = pq.read_table(final)
-                arrow = pa.concat_tables([existing, arrow.cast(existing.schema)])
-            pq.write_table(arrow, tmp, compression="zstd")
-            tmp.replace(final)  # atomic: rows are safe on disk before we delete
-            # batched, indexed delete: short lock holds so the live writer's
-            # once-per-second flush never blocks past its busy_timeout
-            _delete_range_batched(db, table, day_start, hi)
-            total += len(rows)
+                # A final archive is published before deletes begin. If a prior
+                # run died during deletion, the remaining DB rows are already
+                # safe in that archive and must not be appended a second time.
+                archived = pq.ParquetFile(final).metadata.num_rows
+                if archived < row_count:
+                    raise RuntimeError(
+                        f"existing archive {final} has {archived} rows but "
+                        f"database still has {row_count}; refusing to prune"
+                    )
+            else:
+                tmp.unlink(missing_ok=True)
+                writer: pq.ParquetWriter | None = None
+                cursor = 0
+                written = 0
+                try:
+                    while True:
+                        rows = db.query(
+                            f"SELECT rowid AS __rowid__, {col_list} FROM {table} "
+                            "WHERE ts >= ? AND ts < ? AND rowid > ? "
+                            "ORDER BY rowid LIMIT ?",
+                            (day_start, hi, cursor, ARCHIVE_BATCH_ROWS),
+                        )
+                        if not rows:
+                            break
+                        cursor = rows[-1]["__rowid__"]
+                        arrow = pa.table({c: [r[c] for r in rows] for c in cols})
+                        if writer is None:
+                            writer = pq.ParquetWriter(tmp, arrow.schema, compression="zstd")
+                        writer.write_table(arrow)
+                        written += len(rows)
+                finally:
+                    if writer is not None:
+                        writer.close()
+                if written != row_count:
+                    tmp.unlink(missing_ok=True)
+                    raise RuntimeError(
+                        f"archive row count changed for {table} {day}: "
+                        f"expected {row_count}, wrote {written}"
+                    )
+                tmp.replace(final)  # atomic: rows are safe before deletion
+            # Batched indexed deletes keep each write-lock hold short.
+            deleted = _delete_range_batched(db, table, day_start, hi)
+            total += deleted
             n_days += 1
         day_start = day_end
 
