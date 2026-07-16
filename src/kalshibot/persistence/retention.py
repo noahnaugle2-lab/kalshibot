@@ -21,6 +21,8 @@ once at the end to return freed pages to the filesystem.
 
 from __future__ import annotations
 
+import ctypes
+import gc
 import logging
 import time
 from datetime import datetime, timezone
@@ -39,7 +41,22 @@ DEFAULT_RETENTION_DAYS = 30
 
 
 DELETE_BATCH = 5000  # rows per delete statement — keeps each write-lock hold short
-ARCHIVE_BATCH_ROWS = 25_000  # bounded Arrow materialization on the 4 GB VPS
+ARCHIVE_BATCH_ROWS = 10_000  # bounded Arrow materialization on the 4 GB VPS
+
+
+def _release_archive_memory() -> None:
+    """Return per-partition Arrow/Python buffers before the next day.
+
+    Arrow and glibc retain freed arenas by default, which can make a sequence
+    of otherwise bounded partitions breach a systemd memory limit.
+    """
+    gc.collect()
+    pa.default_memory_pool().release_unused()
+    try:
+        malloc_trim = ctypes.CDLL(None).malloc_trim
+    except (AttributeError, OSError):
+        return
+    malloc_trim(0)
 
 
 def _utc_day(ts: float) -> str:
@@ -143,6 +160,11 @@ def archive_table(
                 finally:
                     if writer is not None:
                         writer.close()
+                        writer = None
+                try:
+                    del rows, arrow
+                except UnboundLocalError:
+                    pass
                 if written != row_count:
                     tmp.unlink(missing_ok=True)
                     raise RuntimeError(
@@ -154,6 +176,7 @@ def archive_table(
             deleted = _delete_range_batched(db, table, day_start, hi)
             total += deleted
             n_days += 1
+            _release_archive_memory()
         day_start = day_end
 
     logger.info("retention: archived %d %s rows across %d day(s) -> %s",

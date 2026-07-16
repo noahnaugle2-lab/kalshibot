@@ -97,6 +97,8 @@ def test_archive_streams_multiple_batches(db, tmp_path, monkeypatch):
     now = time.time()
     archive = tmp_path / "archive"
     monkeypatch.setattr(retention, "ARCHIVE_BATCH_ROWS", 2)
+    releases = []
+    monkeypatch.setattr(retention, "_release_archive_memory", lambda: releases.append(True))
     for offset in range(5):
         _seed(db, "trade_tape", now - 40 * DAY + offset)
 
@@ -108,6 +110,7 @@ def test_archive_streams_multiple_batches(db, tmp_path, monkeypatch):
     day = time.strftime("%Y-%m-%d", time.gmtime(now - 40 * DAY))
     assert read_archive(archive, "trade_tape", day).num_rows == 5
     assert db.query("SELECT COUNT(*) AS n FROM trade_tape")[0]["n"] == 0
+    assert releases == [True]
 
 
 def test_existing_archive_finishes_interrupted_delete_without_duplicates(db, tmp_path):
