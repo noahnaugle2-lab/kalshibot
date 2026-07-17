@@ -96,7 +96,12 @@ assets:
     spot_symbol_binance: XRPUSDT
     spot_symbol_coinbase: XRP-USD
     strategy: cross_asset_lead_lag
-    strategy_params: {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10}
+    # LATE disabled 2026-07-17 after both execution surfaces rejected it:
+    # shadow 1/7, -$15.84, PF 0.01; production-path dry run 1/5, -$8.42,
+    # PF 0.02. Keep recording LATE features for replay and counterfactuals.
+    strategy_params:
+      {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10,
+       active_regimes: [EARLY, MID]}
     smart_money_weight: 0.0    # neutralized 2026-07-14: 81 settled causal
                                # counterfactuals showed smart net $19.90 vs
                                # baseline $22.70. Continue collecting signals

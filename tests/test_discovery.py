@@ -59,3 +59,9 @@ def test_asset_config_loads_all_nine():
     # assets here, just verify the flags parse as bools for every asset
     assert all(isinstance(c.enabled, bool) for c in configs.values())
     assert all(isinstance(c.paused, bool) for c in configs.values())
+
+
+def test_active_regime_guardrails_load():
+    configs = load_asset_configs()
+    assert configs["SOL"].strategy_params["active_regimes"] == ["MID", "LATE"]
+    assert configs["XRP"].strategy_params["active_regimes"] == ["EARLY", "MID"]
