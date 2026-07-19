@@ -92,13 +92,26 @@ async def main() -> None:
         print(f"[6] place order       : order_id={placed.order_id} "
               f"filled={placed.fill_count} remaining={placed.remaining_count}")
 
-        mine = await client.get_orders(ticker=market.ticker)
-        match = next((o for o in mine if o.client_order_id == client_order_id), None)
+        match = None
+        # Order-list visibility can lag the create response briefly. Poll by
+        # ticker and status so the check proves reconciliation, not just POST.
+        for _ in range(10):
+            mine = await client.get_orders(ticker=market.ticker, status="resting")
+            match = next(
+                (o for o in mine if o.client_order_id == client_order_id), None
+            )
+            if match is not None:
+                break
+            await asyncio.sleep(0.25)
         print(f"[7] reconcile by coid : {'FOUND' if match else 'MISSING'} "
               f"(status={match.status if match else '-'})")
 
         canceled = await client.cancel_order(placed.order_id)
         print(f"[8] cancel order      : reduced_by={canceled.reduced_by} (expected 1.00)")
+        if match is None:
+            sys.exit("order was canceled, but list reconciliation by client_order_id failed")
+        if canceled.reduced_by != 1:
+            sys.exit(f"cancel quantity mismatch: expected 1.00, got {canceled.reduced_by}")
         print("\nOrder plumbing verified end to end: place, reconcile, cancel all OK.")
 
 

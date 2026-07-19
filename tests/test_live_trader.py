@@ -22,7 +22,8 @@ class FakeClient:
         return OrderResponse.model_validate({
             "order_id": "exchange-1", "client_order_id": order.client_order_id,
             "fill_count": "1.00", "remaining_count": "0.00",
-            "average_fill_price": "0.3200", "average_fee_paid": "0.0100",
+            # V2 is YES-leg quoted. BUY_NO at 0.32 returns an ASK fill at 0.68.
+            "average_fill_price": "0.6800", "average_fee_paid": "0.0100",
         })
 
     async def get_orders(self, **params):
@@ -97,6 +98,8 @@ async def test_ioc_order_is_capped_persisted_and_not_duplicated(db):
     assert order["status"] == "filled" and order["filled_contracts"] == 1.0
     [position] = db.query("SELECT * FROM live_positions")
     assert position["contracts"] == 1.0 and position["intent"] == "BUY_NO"
+    assert position["avg_price"] == pytest.approx(0.32)
+    assert position["fees"] == pytest.approx(0.01)
 
     with pytest.raises(LiveTradingRefused, match="duplicate"):
         await trader.submit_approved("SOL", snapshot(), signal())
@@ -124,3 +127,29 @@ def test_client_order_id_is_stable_and_bounded():
     order_id = LiveTrader.client_order_id("SOL", signal(), "KXSOL15M-TEST")
     assert order_id == LiveTrader.client_order_id("SOL", signal(), "KXSOL15M-TEST")
     assert order_id.startswith("kb-live-") and len(order_id) == 27
+
+
+async def test_fractional_partial_fill_is_persisted_with_total_fee(db):
+    class PartialClient(FakeClient):
+        async def place_order(self, order):
+            self.orders.append(order)
+            return OrderResponse.model_validate({
+                "order_id": "exchange-partial",
+                "client_order_id": order.client_order_id,
+                "fill_count": "0.50",
+                "remaining_count": "0.00",
+                "average_fill_price": "0.6800",
+                "average_fee_paid": "0.0100",
+            })
+
+    client = PartialClient()
+    trader = LiveTrader(settings(), db, client)
+    await trader.prepare()
+    await trader.submit_approved("SOL", snapshot(), signal())
+
+    [order] = db.query("SELECT * FROM live_orders")
+    assert order["status"] == "partial" and order["fees"] == pytest.approx(0.005)
+    [position] = db.query("SELECT * FROM live_positions")
+    assert position["contracts"] == pytest.approx(0.5)
+    assert position["avg_price"] == pytest.approx(0.32)
+    assert position["fees"] == pytest.approx(0.005)

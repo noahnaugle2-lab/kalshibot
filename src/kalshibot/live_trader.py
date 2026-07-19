@@ -39,9 +39,9 @@ class LiveTradingRefused(RuntimeError):
 class LiveTrader:
     """Durable, minimal production execution boundary.
 
-    It intentionally contains no strategy loop.  A future live supervisor must
-    wire the existing observer/strategy/risk pipeline to ``submit_approved``;
-    that integration remains disabled until a separate go-live approval.
+    It intentionally contains no strategy loop. The separately deployed funded
+    supervisor may call ``submit_approved`` only after its own startup, control,
+    risk, and reconciliation gates pass.
     """
 
     def __init__(self, settings: Settings, db: Database, client: OrderClient) -> None:
@@ -157,8 +157,20 @@ class LiveTrader:
         filled = float(response.fill_count or 0)
         remaining = float(response.remaining_count or 0)
         status = "filled" if filled >= contracts else "partial" if filled else "unfilled"
-        avg_price = float(response.average_fill_price) if response.average_fill_price is not None else None
-        fees = float(response.average_fee_paid) if response.average_fee_paid is not None else None
+        wire_avg_price = (
+            float(response.average_fill_price)
+            if response.average_fill_price is not None else None
+        )
+        # V2 quotes every response in YES-leg terms. Convert an ASK fill back
+        # to the BUY_NO contract cost used everywhere in our position ledger.
+        avg_price = wire_avg_price
+        if wire_avg_price is not None and signal.intent is OrderIntent.BUY_NO:
+            avg_price = round(1.0 - wire_avg_price, 4)
+        # The V2 response is a volume-weighted fee *per contract*.
+        fees = (
+            float(response.average_fee_paid) * filled
+            if response.average_fee_paid is not None else None
+        )
         self.db.write_now_sql(
             "UPDATE live_orders SET order_id=?, updated_ts=?, filled_contracts=?, "
             "avg_fill_price=?, fees=?, status=?, raw=? WHERE client_order_id=?",
@@ -166,7 +178,7 @@ class LiveTrader:
              dump_json({"response": response.model_dump(mode="json"), "remaining": remaining}),
              client_order_id),
         )
-        if filled >= 1 and avg_price is not None:
+        if filled > 0 and avg_price is not None:
             self.db.write_now("live_positions", {
                 "market_ticker": snapshot.market_ticker, "asset": asset.upper(),
                 "intent": signal.intent.value, "contracts": filled,

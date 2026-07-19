@@ -1,0 +1,42 @@
+[Unit]
+Description=KalshiBot funded canary supervisor (manual start only)
+After=network-online.target kalshibot.service
+Wants=network-online.target
+BindsTo=kalshibot.service
+Conflicts=kalshibot-live-dry-run.service
+ConditionPathExists=/etc/kalshibot-live.env
+StartLimitIntervalSec=300
+StartLimitBurst=1
+
+[Service]
+Type=simple
+User=kalshi
+WorkingDirectory=/home/kalshi/kalshibot
+EnvironmentFile=/etc/kalshibot-live.env
+ExecStart=/home/kalshi/kalshibot/.venv/bin/python scripts/run_funded_supervisor.py
+# A safety refusal or reconciliation failure must require a human restart.
+Restart=no
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/home/kalshi/kalshibot/data /home/kalshi/kalshibot/logs
+MemoryMax=512M
+TasksMax=64
+LimitNOFILE=4096
+TimeoutStopSec=30
+StandardOutput=append:/home/kalshi/kalshibot/logs/funded-live.log
+StandardError=append:/home/kalshi/kalshibot/logs/funded-live.log
+
+# Deliberately no [Install] section. This unit cannot be enabled at boot and
+# deployments never start it. Follow docs/live-canary-runbook.md manually.

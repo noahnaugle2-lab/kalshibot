@@ -9,6 +9,8 @@
 # copytruncate is required: the trader/tunnel hold the file open in append mode,
 # so we truncate in place rather than rename (no process signal needed).
 /home/kalshi/kalshibot/logs/shadow.log
+/home/kalshi/kalshibot/logs/live-dry-run.log
+/home/kalshi/kalshibot/logs/funded-live.log
 /home/kalshi/kalshibot/logs/tunnel.log {
     daily
     rotate 14

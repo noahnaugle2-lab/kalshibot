@@ -22,9 +22,12 @@ disabled. Current strategy evaluation is concentrated on the enabled assets in
 
 `MODE=LIVE` alone is deliberately insufficient. The live executor also
 requires `LIVE_TRADING_ENABLED=true`, the exact confirmation phrase
-`I_UNDERSTAND_REAL_ORDERS`, and a non-empty allowlist in
-`LIVE_ALLOWED_ASSETS`. Its initial order cap defaults to one contract. It is
-not part of the deployed shadow service.
+`I_UNDERSTAND_REAL_ORDERS`, a non-empty allowlist in `LIVE_ALLOWED_ASSETS`, a
+separate production write key, and an operator-engaged persisted kill switch
+at startup. Its initial order cap defaults to one contract and its daily-loss
+cap defaults to $5. The separate `kalshibot-live.service` has no install target,
+uses `Restart=no`, and is never started by deployment. See
+`docs/live-canary-runbook.md` for the manual canary gate.
 
 For a production-path rehearsal without submitting orders, set
 `LIVE_DRY_RUN_ENABLED=true` while retaining `MODE=SHADOW` and run

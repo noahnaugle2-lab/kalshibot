@@ -21,7 +21,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -212,6 +212,40 @@ CREATE TABLE IF NOT EXISTS live_positions (
     updated_ts REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_live_positions_status ON live_positions(status, asset);
+
+CREATE TABLE IF NOT EXISTS live_position_outcomes (
+    market_ticker TEXT PRIMARY KEY,
+    recorded_ts REAL NOT NULL,
+    settlement_result TEXT NOT NULL,
+    payout_per_contract REAL NOT NULL,
+    pnl_gross REAL NOT NULL,
+    pnl_net REAL NOT NULL,
+    settled_ts REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_live_position_outcomes_ts
+    ON live_position_outcomes(settled_ts);
+
+CREATE TABLE IF NOT EXISTS live_decisions (
+    decision_id TEXT PRIMARY KEY,
+    created_ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    execution TEXT NOT NULL,
+    limit_price REAL NOT NULL,
+    requested_contracts REAL NOT NULL,
+    risk_contracts REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL, -- stale | risk_veto | approved | filled | partial | unfilled | error
+    reason TEXT,
+    client_order_id TEXT,
+    snapshot TEXT NOT NULL,
+    updated_ts REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_live_decisions_market
+    ON live_decisions(market_ticker, created_ts);
+CREATE INDEX IF NOT EXISTS idx_live_decisions_status
+    ON live_decisions(status, updated_ts);
 
 CREATE TABLE IF NOT EXISTS live_proposals (
     proposal_id TEXT PRIMARY KEY,

@@ -59,6 +59,7 @@ mv -Tf "$CURRENT.next" "$CURRENT"
 # Install the release's host controls before restarting into it.
 cp "$CURRENT/deploy/systemd/kalshibot.service" /etc/systemd/system/
 cp "$CURRENT/deploy/systemd/kalshibot-live-dry-run.service" /etc/systemd/system/
+cp "$CURRENT/deploy/systemd/kalshibot-live.service" /etc/systemd/system/
 cp "$CURRENT/deploy/systemd/kalshibot-tunnel.service" /etc/systemd/system/
 cp "$CURRENT/deploy/systemd/kalshibot-backup.service" /etc/systemd/system/
 cp "$CURRENT/deploy/systemd/kalshibot-backup.timer" /etc/systemd/system/

@@ -65,6 +65,7 @@ echo "==> [6/8] n8n container"
 echo "==> [7/8] systemd units"
 cp "$APP_DIR/deploy/systemd/kalshibot.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/systemd/kalshibot-live-dry-run.service" /etc/systemd/system/
+cp "$APP_DIR/deploy/systemd/kalshibot-live.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/systemd/kalshibot-tunnel.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/systemd/kalshibot-backup.service" /etc/systemd/system/
 cp "$APP_DIR/deploy/systemd/kalshibot-backup.timer" /etc/systemd/system/
