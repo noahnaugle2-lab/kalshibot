@@ -8,6 +8,10 @@ CURRENT="$BASE/kalshibot"
 RELEASES="$BASE/releases"
 SHARED="$BASE/shared"
 REF="${1:-main}"
+services=(kalshibot kalshibot-tunnel)
+if systemctl is-active --quiet kalshibot-live-dry-run.service; then
+    services+=(kalshibot-live-dry-run)
+fi
 
 if ! command -v uv >/dev/null; then
     python3 -m venv /opt/kalshibot-uv
@@ -79,15 +83,15 @@ systemctl enable --now kalshibot-backup.timer kalshibot-retention.timer
 deluser kalshi sudo 2>/dev/null || true
 deluser kalshi docker 2>/dev/null || true
 
-if ! systemctl restart kalshibot kalshibot-tunnel; then
+if ! systemctl restart "${services[@]}"; then
     if [ -n "$previous" ] && [ -d "$previous" ]; then
         ln -sfn "$previous" "$CURRENT"
-        systemctl restart kalshibot kalshibot-tunnel
+        systemctl restart "${services[@]}"
     fi
     exit 1
 fi
 sleep 3
-systemctl is-active --quiet kalshibot kalshibot-tunnel
+systemctl is-active --quiet "${services[@]}"
 
 find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
     | sort -nr | awk 'NR>5 {print $2}' | xargs -r rm -rf
