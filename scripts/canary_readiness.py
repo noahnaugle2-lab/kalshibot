@@ -31,6 +31,19 @@ def metrics(pnls: list[float]) -> dict[str, float | int | None]:
     }
 
 
+def one_contract_pnls(rows) -> tuple[list[float], int]:
+    """Scale each settled dry-run result to exactly one filled contract."""
+    pnls: list[float] = []
+    invalid = 0
+    for row in rows:
+        filled = float(row["expected_filled"] or 0)
+        if filled <= 0 or row["hypothetical_pnl_net"] is None:
+            invalid += 1
+            continue
+        pnls.append(float(row["hypothetical_pnl_net"]) / filled)
+    return pnls, invalid
+
+
 def build_report(db_path: Path, since: float, target: int) -> dict:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -84,24 +97,39 @@ def build_report(db_path: Path, since: float, target: int) -> dict:
 
     overall = metrics([float(row["hypothetical_pnl_net"]) for row in dry])
     assets = {asset: metrics(pnls) for asset, pnls in sorted(by_asset.items())}
-    pf = overall["profit_factor"]
+    normalized_pnls, invalid_normalized_rows = one_contract_pnls(dry)
+    one_contract = metrics(normalized_pnls)
+    one_contract_assets = {}
+    for asset in sorted(by_asset):
+        asset_rows = [row for row in dry if row["asset"] == asset]
+        asset_pnls, _ = one_contract_pnls(asset_rows)
+        one_contract_assets[asset] = metrics(asset_pnls)
+    pf = one_contract["profit_factor"]
     comparable_rate = comparable / len(dry) if dry else 0.0
     direction_rate = direction_matches / comparable if comparable else 0.0
     mechanical_gates = {
         "settled_target": overall["settled"] >= target,
-        "profit_factor_at_least_1_5": (
+        "one_contract_profit_factor_at_least_1_5": (
             (pf is not None and pf >= 1.5)
-            or (overall["gross_profit"] > 0 and overall["gross_loss"] == 0)
+            or (
+                one_contract["gross_profit"] > 0
+                and one_contract["gross_loss"] == 0
+            )
         ),
-        "every_candidate_asset_positive": bool(assets) and all(
-            item["net"] > 0 for item in assets.values()
+        "every_candidate_asset_positive_at_one_contract": bool(
+            one_contract_assets
+        ) and all(
+            item["net"] > 0 for item in one_contract_assets.values()
         ),
+        "zero_invalid_one_contract_rows": invalid_normalized_rows == 0,
         "shadow_comparison_coverage_at_least_80pct": comparable_rate >= 0.8,
         "direction_agreement_at_least_90pct": direction_rate >= 0.9,
         "zero_reconciliation_failures": recon_failures == 0,
         "zero_unresolved_live_orders": unresolved_orders == 0,
         "zero_open_live_positions": open_positions == 0,
-        "drawdown_within_5_dollars": overall["max_drawdown"] <= 5,
+        "one_contract_drawdown_within_5_dollars": (
+            one_contract["max_drawdown"] <= 5
+        ),
     }
     return {
         "ready_mechanical": all(mechanical_gates.values()),
@@ -110,6 +138,12 @@ def build_report(db_path: Path, since: float, target: int) -> dict:
         "remaining": max(0, target - int(overall["settled"])),
         "dry_run": overall,
         "by_asset": assets,
+        "one_contract_projection": one_contract,
+        "one_contract_by_asset": one_contract_assets,
+        "normalization": {
+            "method": "hypothetical_pnl_net divided by expected_filled",
+            "invalid_settled_rows": invalid_normalized_rows,
+        },
         "shadow_agreement": {
             "comparable": comparable,
             "coverage": round(comparable_rate, 4),

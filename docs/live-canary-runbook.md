@@ -9,15 +9,18 @@ creates the live environment file, enables the unit, or starts it.
 Do not create `/etc/kalshibot-live.env` until all checks pass:
 
 - At least 50 settled, post-change production-path dry-run outcomes.
-- Profit factor at least 1.5 after simulated fees and crossing costs.
-- Positive net PnL for every asset considered for the canary.
+- One-contract-normalized profit factor at least 1.5 after simulated fees and
+  crossing costs.
+- Positive one-contract-normalized net PnL for every asset considered for the
+  canary.
 - At least 80% of settled dry-run outcomes are comparable with shadow, and
   direction agrees on at least 90% of that set. Investigate every mismatch.
 - Dry-run versus shadow size and disposition deltas are reviewed. Independent
   capture timing and book depth can legitimately change simulated fill size.
 - No startup or continuous reconciliation mismatches.
 - No unresolved `submit_unknown` live order and no open live position.
-- Held-out replay remains profitable with drawdown inside the $5 canary budget.
+- Held-out replay remains profitable with one-contract-normalized drawdown
+  inside the $5 canary budget.
 - Demo exchange order plumbing passes place, reconcile, and cancel.
 
 Use one asset and one 15-minute contract at first. Prefer the asset with the

@@ -223,6 +223,7 @@ export interface LiveDryRunProposal {
   outcome_status: 'pending' | 'unfilled' | 'unsupported' | 'not_approved' | 'settled' | 'untracked';
   expected_filled: number | null;
   hypothetical_pnl_net: number | null;
+  one_contract_pnl_net: number | null;
 }
 export interface LiveDryRunResponse {
   reconciliation: {
@@ -237,6 +238,7 @@ export interface LiveDryRunResponse {
     open_live_positions: number;
     settled_proposals: number;
     hypothetical_net: number;
+    one_contract_net: number;
   };
   proposals: LiveDryRunProposal[];
 }

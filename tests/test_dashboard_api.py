@@ -116,6 +116,30 @@ def test_live_dry_run_is_read_only_and_omits_exchange_raw_payloads(client, trade
     assert body["summary"]["live_orders"] == 0
 
 
+def test_live_dry_run_reports_one_contract_normalized_pnl(client, trader):
+    trader.db.write_now("live_proposals", {
+        "proposal_id": "normalized-1", "created_ts": 101.0, "asset": "BTC",
+        "market_ticker": "M2", "strategy": "latency_momentum:v1",
+        "intent": "BUY_YES", "execution": "taker", "limit_price": 0.42,
+        "requested_contracts": 10, "risk_contracts": 10, "status": "dry_run",
+        "reason": "ok", "snapshot": '{}',
+    })
+    trader.db.write_now("live_proposal_outcomes", {
+        "proposal_id": "normalized-1", "recorded_ts": 101.0,
+        "outcome_status": "settled", "expected_filled": 10,
+        "expected_avg_price": 0.42, "expected_fees": 0.2,
+        "fill_assumption": "test", "settlement_result": "yes",
+        "payout_per_contract": 1.0, "hypothetical_pnl_gross": 5.8,
+        "hypothetical_pnl_net": 5.0, "settled_ts": 200.0,
+    })
+
+    body = client.get("/api/live-dry-run", headers=auth()).json()
+
+    assert body["summary"]["hypothetical_net"] == 5.0
+    assert body["summary"]["one_contract_net"] == 0.5
+    assert body["proposals"][0]["one_contract_pnl_net"] == 0.5
+
+
 def test_leaderboard_rows(client):
     body = client.get("/api/leaderboard", headers=auth()).json()
     [row] = body["rows"]

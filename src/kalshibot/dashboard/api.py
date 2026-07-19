@@ -424,12 +424,18 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
             "SELECT p.proposal_id, p.created_ts, p.asset, p.market_ticker, p.strategy, p.intent, "
             "p.execution, p.limit_price, p.requested_contracts, p.risk_contracts, p.status, p.reason, "
             "COALESCE(o.outcome_status, 'untracked') AS outcome_status, "
-            "o.expected_filled, o.hypothetical_pnl_net "
+            "o.expected_filled, o.hypothetical_pnl_net, "
+            "CASE WHEN o.outcome_status='settled' AND o.expected_filled>0 "
+            "THEN o.hypothetical_pnl_net/o.expected_filled ELSE NULL END "
+            "AS one_contract_pnl_net "
             "FROM live_proposals p LEFT JOIN live_proposal_outcomes o ON o.proposal_id=p.proposal_id "
             "ORDER BY p.created_ts DESC LIMIT ?", (limit,)
         )]
         outcomes = db.query(
-            "SELECT COUNT(*) AS settled, COALESCE(SUM(hypothetical_pnl_net), 0) AS net "
+            "SELECT COUNT(*) AS settled, COALESCE(SUM(hypothetical_pnl_net), 0) AS net, "
+            "COALESCE(SUM(CASE WHEN expected_filled>0 "
+            "THEN hypothetical_pnl_net/expected_filled ELSE 0 END), 0) "
+            "AS one_contract_net "
             "FROM live_proposal_outcomes WHERE outcome_status='settled'"
         )[0]
         return {
@@ -443,6 +449,7 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
                 )[0]["n"],
                 "settled_proposals": outcomes["settled"],
                 "hypothetical_net": round(outcomes["net"], 2),
+                "one_contract_net": round(outcomes["one_contract_net"], 2),
             },
             "proposals": proposals,
         }
