@@ -52,7 +52,7 @@ export function LiveDryRunView() {
         <Metric label="PROPOSALS" value={String(proposalTotal)} good />
         <Metric label="LIVE ORDERS" value={String(data?.summary.live_orders ?? 0)} good={(data?.summary.live_orders ?? 0) === 0} />
         <Metric label="OPEN LIVE POSITIONS" value={String(data?.summary.open_live_positions ?? 0)} good={(data?.summary.open_live_positions ?? 0) === 0} />
-        <Metric label="1-CONTRACT PNL" value={`${money(data?.summary.one_contract_net ?? 0)} (${data?.summary.settled_proposals ?? 0})`} good={(data?.summary.one_contract_net ?? 0) >= 0} />
+        <Metric label="1-CONTRACT PNL · ALL SCORED" value={`${money(data?.summary.one_contract_net ?? 0)} (${data?.summary.settled_proposals ?? 0})`} good={(data?.summary.one_contract_net ?? 0) >= 0} />
       </div>
 
       {data?.reconciliation && (
