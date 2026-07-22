@@ -84,8 +84,8 @@ class Settings(BaseSettings):
     # High-volume trade tape can grow by multiple GB/day in production. Keep a
     # short hot window in SQLite and archive older rows to compressed Parquet.
     retention_days: int = Field(default=7, ge=1, le=90, alias="RETENTION_DAYS")
-    disk_warning_percent: float = Field(default=80, alias="DISK_WARNING_PERCENT")
-    disk_critical_percent: float = Field(default=90, alias="DISK_CRITICAL_PERCENT")
+    disk_warning_percent: float = Field(default=70, alias="DISK_WARNING_PERCENT")
+    disk_critical_percent: float = Field(default=85, alias="DISK_CRITICAL_PERCENT")
     backup_max_age_hours: float = Field(default=26, alias="BACKUP_MAX_AGE_HOURS")
 
 

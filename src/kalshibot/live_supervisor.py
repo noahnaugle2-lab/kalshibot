@@ -38,7 +38,10 @@ class LiveDryRunSupervisor(Observer):
     """Observe, reconcile, and propose. It cannot submit or cancel an order."""
 
     def __init__(self, db_path: str | None = None) -> None:
-        super().__init__(db_path)
+        # The primary shadow trader is the sole tape writer. This companion
+        # keeps independent live books for proposal fidelity but persists only
+        # reconciliation, proposals, and outcomes.
+        super().__init__(db_path, persist_observations=False)
         if self.settings.mode is not Mode.SHADOW:
             raise RuntimeError("live dry-run supervisor requires MODE=SHADOW")
         if not self.settings.live_dry_run_enabled:

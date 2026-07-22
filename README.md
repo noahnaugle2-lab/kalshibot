@@ -127,7 +127,9 @@ data/                     runtime data (gitignored)
   the kill switch.
 - **Retention**: `kalshibot-retention.timer` keeps seven hot days in SQLite and
   archives older high-volume tape to compressed Parquet before the backup run.
-- **Backups**: `kalshibot-backup.timer` creates a verified SQLite backup nightly.
+- **Backups**: `kalshibot-backup.timer` creates one verified local SQLite backup
+  nightly. Longer history belongs on `BACKUP_RCLONE_DEST`; the backup refuses
+  to start without room for an atomic temporary copy and removes failed temps.
   Set `BACKUP_RCLONE_DEST` for off-host copies and test restores regularly.
 - **Supervision**: launchd plists in `deploy/launchd/` (bot + tunnel,
   restart-on-crash and on-reboot). **macOS TCC caveat**: launchd agents are

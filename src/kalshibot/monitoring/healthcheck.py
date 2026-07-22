@@ -25,7 +25,8 @@ PING_INTERVAL_S = 60.0
 SPOT_STALE_S = 90.0
 BOOK_STALE_S = 90.0
 SNAPSHOT_STALE_S = 30.0
-DEFAULT_DISK_CRITICAL_PERCENT = 90.0
+DEFAULT_DISK_CRITICAL_PERCENT = 85.0
+DEFAULT_DISK_WARNING_PERCENT = 70.0
 DEFAULT_BACKUP_MAX_AGE_HOURS = 26.0
 
 
@@ -80,7 +81,9 @@ def health_report(trader, now: float | None = None) -> tuple[bool, list[str]]:
             if risk is not None:
                 risk.kill_switch = True
         else:
-            warning = getattr(settings, "disk_warning_percent", 80.0)
+            warning = getattr(
+                settings, "disk_warning_percent", DEFAULT_DISK_WARNING_PERCENT,
+            )
             if used_pct >= warning:
                 problems.append(f"disk warning: {used_pct:.1f}% used")
     except OSError as exc:

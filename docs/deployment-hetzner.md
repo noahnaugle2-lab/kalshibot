@@ -104,6 +104,10 @@ window. A separate systemd timer creates a transactionally consistent SQLite bac
 retains two local copies, and records freshness for the health gate. Set
 `BACKUP_RCLONE_DEST` to an encrypted off-host rclone destination. Hetzner
 snapshots do not include attached Volumes, so they are not a database backup.
+The 75 GB root filesystem retains one verified local database backup because
+an atomic backup needs space for the existing copy and the new temporary copy
+at the same time. Configure `BACKUP_RCLONE_DEST` for longer history, or place
+backups on a dedicated volume with an independent off-host copy.
 
 ```bash
 systemctl start kalshibot-backup.service

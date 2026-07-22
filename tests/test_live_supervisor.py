@@ -74,6 +74,22 @@ def test_dry_run_writes_proposal_without_order_client_call(db):
     assert outcome["expected_avg_price"] == 0.4
 
 
+def test_dry_run_supervisor_disables_duplicate_observation_persistence(monkeypatch):
+    captured = {}
+
+    def fake_observer_init(self, db_path=None, *, persist_observations=True):
+        captured["persist_observations"] = persist_observations
+        self.settings = SimpleNamespace(
+            mode=SimpleNamespace(value="SHADOW"),
+            live_dry_run_enabled=False,
+        )
+
+    monkeypatch.setattr("kalshibot.live_supervisor.Observer.__init__", fake_observer_init)
+    with pytest.raises(RuntimeError, match="requires MODE=SHADOW"):
+        LiveDryRunSupervisor()
+    assert captured["persist_observations"] is False
+
+
 def test_reconciliation_failure_blocks_proposal(db):
     supervisor = planner(db, reconciliation_ok=False)
     supervisor.on_snapshot("SOL", snapshot())

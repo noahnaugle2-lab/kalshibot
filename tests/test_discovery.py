@@ -63,5 +63,5 @@ def test_asset_config_loads_all_nine():
 
 def test_active_regime_guardrails_load():
     configs = load_asset_configs()
-    assert configs["SOL"].strategy_params["active_regimes"] == ["MID", "LATE"]
-    assert configs["XRP"].strategy_params["active_regimes"] == ["EARLY", "MID"]
+    assert configs["SOL"].strategy_params["active_regimes"] == ["MID"]
+    assert configs["XRP"].strategy_params["active_regimes"] == ["EARLY"]

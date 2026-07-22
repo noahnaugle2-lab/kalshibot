@@ -39,7 +39,9 @@ CLOCK_CHECK_INTERVAL = 3600.0
 
 
 class Observer:
-    def __init__(self, db_path: str | None = None) -> None:
+    def __init__(
+        self, db_path: str | None = None, *, persist_observations: bool = True,
+    ) -> None:
         self.settings = Settings()
         self.asset_configs = load_asset_configs()
         self.db = Database(db_path or PROJECT_ROOT / "data" / "kalshibot.db")
@@ -49,6 +51,7 @@ class Observer:
         self._last_spot_write: dict[tuple[str, str], float] = {}
         self._stop = asyncio.Event()
         self._crashed: str | None = None  # name of a task that died unexpectedly
+        self.persist_observations = persist_observations
 
     # ------------------------------------------------------------- lifecycle
 
@@ -80,16 +83,18 @@ class Observer:
 
         for i, asset in enumerate(assets):
             found = report.found[asset]
-            self.db.write_now("assets", {
-                "symbol": asset,
-                "series_ticker": found.series_ticker,
-                "spot_symbol_primary": self.asset_configs[asset].spot_symbol_coinbase,
-                "spot_symbol_backup": self.asset_configs[asset].spot_symbol_binance,
-                "updated_at": time.time(),
-            })
+            if self.persist_observations:
+                self.db.write_now("assets", {
+                    "symbol": asset,
+                    "series_ticker": found.series_ticker,
+                    "spot_symbol_primary": self.asset_configs[asset].spot_symbol_coinbase,
+                    "spot_symbol_backup": self.asset_configs[asset].spot_symbol_binance,
+                    "updated_at": time.time(),
+                })
             self.recorders[asset] = AssetTapeRecorder(
                 asset, found.series_ticker, self.client, self.db,
                 stagger=i * 0.25,
+                persist=self.persist_observations,
             )
 
         tasks = [
@@ -166,7 +171,7 @@ class Observer:
     def _record_spot_tick(self, tick: SpotTick) -> None:
         key = (tick.asset, tick.source)
         last = self._last_spot_write.get(key, 0.0)
-        if tick.ts - last >= SPOT_WRITE_DOWNSAMPLE:
+        if self.persist_observations and tick.ts - last >= SPOT_WRITE_DOWNSAMPLE:
             self._last_spot_write[key] = tick.ts
             self.db.add("spot_ticks", {
                 "ts": tick.ts,
@@ -205,7 +210,8 @@ class Observer:
                         btc_implied_prob=btc_implied if asset != "BTC" else None,
                     )
                     snap = self.enrich_snapshot(asset, snap)
-                    self.db.add("signals", snap.to_row())
+                    if self.persist_observations:
+                        self.db.add("signals", snap.to_row())
                 except Exception:
                     logger.exception("%s: feature computation failed", asset)
                     continue

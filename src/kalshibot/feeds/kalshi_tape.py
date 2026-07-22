@@ -45,6 +45,7 @@ class AssetTapeRecorder:
         book_interval: float = BOOK_INTERVAL,
         trades_interval: float = TRADES_INTERVAL,
         stagger: float = 0.0,
+        persist: bool = True,
     ) -> None:
         self.asset = asset
         self.series_ticker = series_ticker
@@ -53,6 +54,7 @@ class AssetTapeRecorder:
         self.book_interval = book_interval
         self.trades_interval = trades_interval
         self.stagger = stagger
+        self.persist = persist
 
         self.current_market: Market | None = None
         self.latest_book: Orderbook | None = None
@@ -96,7 +98,8 @@ class AssetTapeRecorder:
                 "%s: window rolled to %s (closes %s)",
                 self.asset, market.ticker, market.close_time,
             )
-        self.db.add("markets", self._market_row(market))
+        if self.persist:
+            self.db.add("markets", self._market_row(market))
 
     def _market_row(self, m: Market) -> dict:
         return {
@@ -120,12 +123,10 @@ class AssetTapeRecorder:
     async def run(self) -> None:
         await asyncio.sleep(self.stagger)
         await self._refresh_market()
-        await asyncio.gather(
-            self._book_loop(),
-            self._trades_loop(),
-            self._market_roll_loop(),
-            self._settlement_loop(),
-        )
+        tasks = [self._book_loop(), self._market_roll_loop()]
+        if self.persist:
+            tasks.extend([self._trades_loop(), self._settlement_loop()])
+        await asyncio.gather(*tasks)
 
     async def _market_roll_loop(self) -> None:
         while True:
@@ -144,7 +145,7 @@ class AssetTapeRecorder:
                 await self._refresh_market()
                 # one final trades sweep of the window we just left so the last
                 # prints (which land after the loop's last in-window poll) aren't lost
-                if self._roll_from is not None:
+                if self.persist and self._roll_from is not None:
                     rolled = self._roll_from
                     self._roll_from = None
                     await self._poll_trades(rolled)
@@ -165,21 +166,22 @@ class AssetTapeRecorder:
                 book = await self.client.get_orderbook(market.ticker)
                 now = time.time()
                 self.latest_book, self.latest_book_ts = book, now
-                self.db.add("book_snapshots", {
-                    "ts": now,
-                    "market_ticker": market.ticker,
-                    "asset": self.asset,
-                    "yes_bids": dump_json(
-                        [[str(l.price), str(l.quantity)] for l in book.yes_bids]
-                    ),
-                    "no_bids": dump_json(
-                        [[str(l.price), str(l.quantity)] for l in book.no_bids]
-                    ),
-                    "best_yes_bid": float(book.best_yes_bid) if book.best_yes_bid is not None else None,
-                    "best_yes_ask": float(book.best_yes_ask) if book.best_yes_ask is not None else None,
-                    "mid": float(book.mid) if book.mid is not None else None,
-                    "spread": float(book.spread) if book.spread is not None else None,
-                })
+                if self.persist:
+                    self.db.add("book_snapshots", {
+                        "ts": now,
+                        "market_ticker": market.ticker,
+                        "asset": self.asset,
+                        "yes_bids": dump_json(
+                            [[str(l.price), str(l.quantity)] for l in book.yes_bids]
+                        ),
+                        "no_bids": dump_json(
+                            [[str(l.price), str(l.quantity)] for l in book.no_bids]
+                        ),
+                        "best_yes_bid": float(book.best_yes_bid) if book.best_yes_bid is not None else None,
+                        "best_yes_ask": float(book.best_yes_ask) if book.best_yes_ask is not None else None,
+                        "mid": float(book.mid) if book.mid is not None else None,
+                        "spread": float(book.spread) if book.spread is not None else None,
+                    })
             except KalshiAPIError as exc:
                 logger.warning("%s: book poll failed: %s", self.asset, exc)
             except Exception as exc:
