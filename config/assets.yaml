@@ -67,11 +67,12 @@ assets:
     spot_symbol_binance: SOLUSDT
     spot_symbol_coinbase: SOL-USD
     strategy: cross_asset_lead_lag
-    # Validation cohort narrowed to MID on 2026-07-22. Since the 2026-07-19
-    # release, production-path MID was +$6.75 / PF 1.22 while LATE was
-    # -$1.17 / PF 0.91. Keep recording excluded regimes for replay.
+    # Validation cohort narrowed to MID on 2026-07-22. A chronological
+    # threshold ladder selected btc_move_threshold=0.0010: +$13.47 / PF 3.20
+    # over 13 prior proposals, positive in both train and validation. Treat
+    # that small sample as a candidate to validate, not a readiness verdict.
     strategy_params:
-      {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10,
+      {btc_move_threshold: 0.0010, edge_threshold: 0.02, contracts: 10,
        active_regimes: [MID]}
     smart_money_weight: 0.25   # enabled 2026-07-05 after causal walk-forward validation (75.9% vs 53.1% base)
   ZEC:
@@ -96,11 +97,12 @@ assets:
     spot_symbol_binance: XRPUSDT
     spot_symbol_coinbase: XRP-USD
     strategy: cross_asset_lead_lag
-    # Validation cohort narrowed to EARLY on 2026-07-22. Since the 2026-07-19
-    # release, production-path EARLY was +$0.93 / PF 1.01 while MID was
-    # -$9.26 / PF 0.61. Keep recording excluded regimes for replay.
+    # Validation cohort narrowed to EARLY on 2026-07-22. A chronological
+    # threshold ladder selected btc_move_threshold=0.0010: +$22.32 / PF 1.59
+    # over 33 prior proposals, positive in both train and validation. Treat
+    # that small sample as a candidate to validate, not a readiness verdict.
     strategy_params:
-      {btc_move_threshold: 0.0008, edge_threshold: 0.02, contracts: 10,
+      {btc_move_threshold: 0.0010, edge_threshold: 0.02, contracts: 10,
        active_regimes: [EARLY]}
     smart_money_weight: 0.0    # neutralized 2026-07-14: 81 settled causal
                                # counterfactuals showed smart net $19.90 vs
