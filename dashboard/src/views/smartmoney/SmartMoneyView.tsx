@@ -83,6 +83,44 @@ export function SmartMoneyView() {
         })}
       </div>
 
+      {/* Independent wallet-consensus entry experiment */}
+      <div className="bg-panel border border-line rounded-md overflow-hidden">
+        <div className="px-3.5 py-2.5 border-b border-line text-[10px] font-extrabold tracking-[0.1em] text-fg">
+          WALLET CONSENSUS · READ-ONLY DRY RUN
+        </div>
+        <div className="px-3.5 py-2 text-[9px] text-dim border-b border-linesub">
+          Top copyable wallets per asset · first 300 seconds only · 8 effective wallets · 65% weighted agreement · 3¢ model edge
+        </div>
+        <div className="overflow-x-auto">
+          <div className="min-w-[800px]">
+            <div className="grid grid-cols-[70px_90px_100px_100px_110px_1fr] gap-2.5 px-3.5 py-2 text-faint tracking-[0.1em] text-[8px] border-b border-linesub">
+              <span>ASSET</span><span>LEAN</span><span className="text-right">ACTIVE</span>
+              <span className="text-right">CONSENSUS</span><span className="text-right">SETTLED · NET</span><span>STATUS</span>
+            </div>
+            {(data?.wallet_consensus.latest_observations ?? []).map((o) => {
+              const summary = data?.wallet_consensus.summary.find((s) => s.asset === o.asset);
+              return (
+                <div key={o.asset} className="grid grid-cols-[70px_90px_100px_100px_110px_1fr] gap-2.5 px-3.5 py-2.5 border-b border-linesub text-[10px] items-center">
+                  <span className="font-extrabold text-fg">{o.asset}</span>
+                  <LeanGlyph lean={o.lean === 'NEUTRAL' ? null : o.lean} />
+                  <span className="text-right text-dim">{o.active_wallets} · {o.effective_wallets.toFixed(1)} eff</span>
+                  <span className="text-right font-bold text-fg">{o.dominant_share == null ? '—' : pct(o.dominant_share)}</span>
+                  <span className="text-right text-dim">
+                    {summary?.settled ?? 0} · <span style={{ color: (summary?.net ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                      {(summary?.net ?? 0) >= 0 ? '+' : '−'}${Math.abs(summary?.net ?? 0).toFixed(2)}
+                    </span>
+                  </span>
+                  <span className={o.eligible ? 'text-green' : 'text-faint'}>{o.reason}</span>
+                </div>
+              );
+            })}
+            {(data?.wallet_consensus.latest_observations ?? []).length === 0 && (
+              <div className="px-3.5 py-4 text-faint text-[9px]">awaiting the first ranked-wallet observation</div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Layer A — flow patterns */}
       <div className="bg-panel border border-line rounded-md overflow-hidden">
         <div className="px-3.5 py-2.5 border-b border-line text-[10px] font-extrabold tracking-[0.1em] text-fg">

@@ -43,6 +43,24 @@ risk:
 #   assets: []
 blackouts: []
 
+# Independent, read-only proposal experiment. This ranks profitable public
+# Polymarket wallets per asset and records a one-contract Kalshi dry-run only
+# when early wallet consensus and the existing model edge agree. It does not
+# replace an asset strategy and has no funded order path.
+wallet_consensus:
+  enabled: true
+  assets: [SOL, XRP]
+  top_n: 100
+  minimum_history: 100
+  maximum_entry_seconds: 300
+  minimum_active_wallets: 8
+  minimum_effective_wallets: 8.0
+  minimum_dominant_share: 0.65
+  confirmation_observations: 2
+  edge_threshold: 0.03
+  contracts: 1
+  refresh_seconds: 30
+
 assets:
   BTC:
     # BTC stays ENABLED as a data source: cross_asset_lead_lag (SOL/XRP/DOGE)

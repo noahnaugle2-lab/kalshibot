@@ -25,6 +25,7 @@ modest; the machinery is built now so records accumulate as they grow.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import math
 import time
@@ -80,6 +81,7 @@ class PMTrade:
     price: float
     size: float
     ts: float
+    trade_id: str | None = None
 
 
 @dataclass
@@ -162,6 +164,7 @@ class PolymarketClient:
                     price=float(t.get("price") or 0),
                     size=float(t.get("size") or 0),
                     ts=float(t.get("timestamp") or 0),
+                    trade_id=(t.get("transactionHash") or t.get("id")),
                 ))
             if len(page) < TRADES_PAGE:
                 return trades
@@ -272,7 +275,6 @@ async def scan_asset(
         stats["resolved"] += 1
         stats["wallet_rows"] += len(rows)
         await asyncio.sleep(REQUEST_DELAY_S)
-    refresh_wallet_records(db)
     return stats
 
 
@@ -302,7 +304,221 @@ def refresh_wallet_records(db: Database) -> int:
             "avg_entry_offset_s": r["avg_entry"],
             "qualified": is_qualified, "updated_ts": now,
         })
+    refresh_wallet_asset_scores(db, now=now)
     return qualified
+
+
+def refresh_wallet_asset_scores(
+    db: Database,
+    *,
+    minimum_history: int = 100,
+    maximum_entry_seconds: float = 300.0,
+    top_n: int = 100,
+    now: float | None = None,
+) -> int:
+    """Build per-asset rankings around copyable profit instead of win rate.
+
+    Only the trailing 30 days are used. A wallet can qualify near a 50% hit
+    rate when its entry prices create positive PnL, ROI, and profit factor.
+    Ranking is deterministic and is later consumed only by the read-only
+    wallet-consensus experiment.
+    """
+    now = time.time() if now is None else now
+    cutoff = now - 30 * 86400
+    db.execute_write("DELETE FROM wallet_asset_scores")
+    rows = db.query(
+        "SELECT wallet, asset, COUNT(*) AS n, SUM(won_600) AS wins, "
+        "SUM(pnl) AS pnl, SUM(stake) AS stake, AVG(entry_offset_s) AS avg_entry, "
+        "SUM(CASE WHEN pnl > 0 THEN pnl ELSE 0 END) AS gross_profit, "
+        "-SUM(CASE WHEN pnl < 0 THEN pnl ELSE 0 END) AS gross_loss "
+        "FROM wallet_window_results WHERE lean_600 IS NOT NULL AND close_ts >= ? "
+        "GROUP BY wallet, asset",
+        (cutoff,),
+    )
+    by_asset: dict[str, list[dict]] = {}
+    prepared: list[dict] = []
+    for row in rows:
+        n = int(row["n"] or 0)
+        pnl = float(row["pnl"] or 0.0)
+        stake = float(row["stake"] or 0.0)
+        roi = pnl / stake if stake > 0 else 0.0
+        gross_loss = float(row["gross_loss"] or 0.0)
+        gross_profit = float(row["gross_profit"] or 0.0)
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else (
+            99.0 if gross_profit > 0 else 0.0
+        )
+        avg_entry = float(row["avg_entry"] or 0.0)
+        qualifies = (
+            n >= minimum_history
+            and pnl > 0
+            and roi > 0
+            and profit_factor > 1.0
+            and avg_entry <= maximum_entry_seconds
+        )
+        # Profit and ROI are the primary evidence. Sample size, payoff quality,
+        # and early entry improve the score but are deliberately capped so a
+        # single high-turnover wallet cannot dominate the live vote.
+        copy_score = 0.0
+        if qualifies:
+            copy_score = (
+                math.log1p(pnl)
+                * min(1.0, max(0.0, roi))
+                * min(2.0, math.sqrt(n / minimum_history))
+                * min(1.0, profit_factor / 2.0)
+                * max(0.25, 1.0 - avg_entry / 600.0)
+            )
+        item = {
+            "wallet": row["wallet"], "asset": row["asset"], "rank": None,
+            "n": n, "wins": int(row["wins"] or 0),
+            "win_rate": (row["wins"] or 0) / n if n else 0.0,
+            "pnl": pnl, "stake": stake, "roi": roi,
+            "profit_factor": profit_factor, "max_drawdown": None,
+            "avg_entry_offset_s": avg_entry, "copy_score": copy_score,
+            "qualified": int(qualifies), "updated_ts": now,
+        }
+        prepared.append(item)
+        if qualifies:
+            by_asset.setdefault(row["asset"], []).append(item)
+
+    # Stream each asset's qualifying histories in bounded wallet batches. This
+    # avoids materializing the full ledger while allowing drawdown to penalize
+    # the ranking, not merely appear as a display-only statistic.
+    for asset, items in by_asset.items():
+        by_wallet = {item["wallet"]: item for item in items}
+        for offset in range(0, len(items), 100):
+            batch = items[offset:offset + 100]
+            placeholders = ",".join("?" for _ in batch)
+            pnl_rows = db.query(
+                f"SELECT wallet, pnl FROM wallet_window_results WHERE asset=? "
+                f"AND close_ts >= ? AND wallet IN ({placeholders}) "
+                "ORDER BY wallet, close_ts, id",
+                (asset, cutoff, *(item["wallet"] for item in batch)),
+            )
+            state: dict[str, tuple[float, float, float]] = {}
+            for row in pnl_rows:
+                equity, peak, drawdown = state.get(row["wallet"], (0.0, 0.0, 0.0))
+                equity += float(row["pnl"] or 0.0)
+                peak = max(peak, equity)
+                drawdown = max(drawdown, peak - equity)
+                state[row["wallet"]] = (equity, peak, drawdown)
+            for wallet, (_, _, drawdown) in state.items():
+                item = by_wallet[wallet]
+                item["max_drawdown"] = drawdown
+                item["copy_score"] /= 1.0 + drawdown / max(item["pnl"], 1.0)
+        items.sort(key=lambda x: (-x["copy_score"], -x["pnl"], x["wallet"]))
+        for rank, item in enumerate(items, start=1):
+            item["rank"] = rank
+            if rank > top_n:
+                # Preserve the score for research, but only the configured top
+                # cohort is eligible for the runtime consensus.
+                item["qualified"] = 0
+
+    db.write_many("wallet_asset_scores", prepared)
+    return sum(item["qualified"] for item in prepared)
+
+
+def _trade_event_id(condition_id: str, trade: PMTrade) -> str:
+    raw = (
+        f"{trade.trade_id or ''}|{condition_id}|{trade.wallet}|{trade.side}|{trade.outcome}|"
+        f"{trade.price:.10f}|{trade.size:.10f}|{trade.ts:.6f}"
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+async def copyable_consensus_lean(
+    client: PolymarketClient,
+    db: Database,
+    asset: str,
+    close_ts: int,
+    *,
+    top_n: int = 100,
+    maximum_entry_seconds: float = 300.0,
+    minimum_active_wallets: int = 8,
+    minimum_effective_wallets: float = 8.0,
+    minimum_dominant_share: float = 0.65,
+    observed_ts: float | None = None,
+) -> dict:
+    """Return an early, diversified consensus from top copyable wallets.
+
+    This is separate from ``live_lean`` so the existing smart sizing overlay
+    remains unchanged while the new entry strategy accumulates dry-run data.
+    """
+    observed_ts = time.time() if observed_ts is None else observed_ts
+    market = await client.get_updown_market(asset, close_ts)
+    neutral = {
+        "lean": "NEUTRAL", "strength": 0.0, "wallets": 0,
+        "effective_wallets": 0.0, "weighted_up": 0.0,
+        "weighted_down": 0.0, "dominant_share": None,
+        "eligible": False, "reason": "no market", "condition_id": None,
+    }
+    if market is None:
+        return neutral
+    neutral["condition_id"] = market.condition_id
+    ranked = db.query(
+        "SELECT wallet, rank, copy_score FROM wallet_asset_scores "
+        "WHERE asset=? AND qualified=1 AND rank <= ? ORDER BY rank",
+        (asset, top_n),
+    )
+    if not ranked:
+        return {**neutral, "reason": "no ranked wallets"}
+    records = {r["wallet"]: r for r in ranked}
+    trades = await client.get_trades(market.condition_id)
+    open_ts = close_ts - WINDOW_SECONDS
+    cutoff_ts = open_ts + maximum_entry_seconds
+    tracked = [
+        trade for trade in trades
+        if trade.wallet in records and open_ts <= trade.ts <= cutoff_ts
+    ]
+    db.write_many_ignore("polymarket_wallet_trade_events", [{
+        "event_id": _trade_event_id(market.condition_id, trade),
+        "condition_id": market.condition_id, "asset": asset,
+        "wallet": trade.wallet, "side": trade.side, "outcome": trade.outcome,
+        "price": trade.price, "size": trade.size, "ts": trade.ts,
+        "observed_ts": observed_ts,
+    } for trade in tracked])
+    stances = wallet_windows(tracked, "UP", open_ts)
+    raw_votes: list[tuple[str, float]] = []
+    for stance in stances:
+        record = records.get(stance.wallet)
+        if record is None:
+            continue
+        # Rank-based quality is stable and bounded. Current stake contributes
+        # conviction logarithmically, so a whale cannot own the vote.
+        quality = 1.0 / math.sqrt(max(1, int(record["rank"])))
+        conviction = min(2.0, max(0.5, math.log10(1 + max(0.0, stance.stake))))
+        raw_votes.append((stance.lean, quality * conviction))
+    if not raw_votes:
+        return {**neutral, "reason": "no early ranked-wallet positions"}
+
+    uncapped_total = sum(weight for _, weight in raw_votes)
+    cap = uncapped_total * 0.10
+    votes = [(lean, min(weight, cap)) for lean, weight in raw_votes]
+    total = sum(weight for _, weight in votes)
+    weighted_up = sum(weight for lean, weight in votes if lean == "UP")
+    weighted_down = total - weighted_up
+    dominant = max(weighted_up, weighted_down) / total if total else 0.0
+    effective = total * total / sum(weight * weight for _, weight in votes)
+    lean = "UP" if weighted_up >= weighted_down else "DOWN"
+    eligible = True
+    reason = "eligible"
+    if len(votes) < minimum_active_wallets:
+        eligible = False
+        reason = f"active wallets {len(votes)} < {minimum_active_wallets}"
+    elif effective < minimum_effective_wallets:
+        eligible = False
+        reason = f"effective wallets {effective:.2f} < {minimum_effective_wallets:.2f}"
+    elif dominant < minimum_dominant_share:
+        eligible = False
+        reason = f"dominant share {dominant:.3f} < {minimum_dominant_share:.3f}"
+    return {
+        "lean": lean if eligible else "NEUTRAL",
+        "candidate_lean": lean,
+        "strength": max(0.0, min(1.0, (dominant - 0.5) * 2)),
+        "wallets": len(votes), "effective_wallets": effective,
+        "weighted_up": weighted_up, "weighted_down": weighted_down,
+        "dominant_share": dominant, "eligible": eligible, "reason": reason,
+        "condition_id": market.condition_id,
+    }
 
 
 # ---------------------------------------------------------------- live lean

@@ -203,6 +203,40 @@ export interface SmartMoneyResponse {
   patterns: FlowPattern[];
   wallets: Wallet[];
   merged_leans: Partial<Record<Asset, { lean: Lean; strength: number }>>;
+  wallet_consensus: {
+    rankings: {
+      address: string;
+      asset: Asset;
+      rank: number;
+      n: number;
+      win_rate: number;
+      pnl: number;
+      roi: number;
+      profit_factor: number | null;
+      avg_entry_offset_s: number;
+      copy_score: number;
+    }[];
+    latest_observations: {
+      id: number;
+      ts: number;
+      asset: Asset;
+      market_ticker: string;
+      elapsed_s: number;
+      active_wallets: number;
+      effective_wallets: number;
+      dominant_share: number | null;
+      lean: Lean | 'NEUTRAL';
+      eligible: number;
+      reason: string;
+    }[];
+    summary: {
+      asset: Asset;
+      settled: number;
+      wins: number;
+      net: number;
+      profit_factor: number | null;
+    }[];
+  };
 }
 
 // ---- GET /api/live-dry-run ----

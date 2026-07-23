@@ -30,7 +30,11 @@ from kalshibot.evaluation.scorecard import build_scorecards, persist_scorecards,
 from kalshibot.persistence.db import Database
 from kalshibot.persistence.retention import run_retention
 from kalshibot.smartmoney.flow import mine_new_windows
-from kalshibot.smartmoney.polymarket import PolymarketClient, scan_asset
+from kalshibot.smartmoney.polymarket import (
+    PolymarketClient,
+    refresh_wallet_records,
+    scan_asset,
+)
 
 WINDOW = 900
 
@@ -72,6 +76,7 @@ async def main() -> int:
             for asset in ASSETS:
                 stats = await scan_asset(client, db, asset, start, end)
                 total_rows += stats["wallet_rows"]
+            refresh_wallet_records(db)
             qualified = db.query(
                 "SELECT COUNT(*) AS c FROM smart_wallets WHERE qualified = 1"
             )[0]["c"]

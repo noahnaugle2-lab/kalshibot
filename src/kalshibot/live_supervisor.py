@@ -15,7 +15,7 @@ import time
 import uuid
 from typing import Any
 
-from kalshibot.config import Mode, load_risk
+from kalshibot.config import Mode, load_risk, load_wallet_consensus
 from kalshibot.features.engine import FeatureSnapshot
 from kalshibot.kalshi.auth import KalshiSigner
 from kalshibot.kalshi.client import KalshiClient, KalshiEnvironment
@@ -25,8 +25,12 @@ from kalshibot.orders.risk import RiskManager
 from kalshibot.persistence.db import dump_json
 from kalshibot.sim.fills import DEFAULT_PAYOUT, settle_position, simulate_taker
 from kalshibot.smartmoney import signal as sm_signal
-from kalshibot.smartmoney.polymarket import PolymarketClient, live_lean
-from kalshibot.strategies.base import PositionState, Strategy
+from kalshibot.smartmoney.polymarket import (
+    PolymarketClient,
+    copyable_consensus_lean,
+    live_lean,
+)
+from kalshibot.strategies.base import PositionState, Strategy, StrategySignal
 from kalshibot.strategies.library import build_strategy
 
 logger = logging.getLogger(__name__)
@@ -60,6 +64,9 @@ class LiveDryRunSupervisor(Observer):
         self.risk: RiskManager = load_risk()
         self.strategies: dict[str, Strategy] = {}
         self.smart: dict[str, sm_signal.SmartMoneySignal] = {}
+        self.wallet_consensus_config = load_wallet_consensus()
+        self.latest_snapshots: dict[str, FeatureSnapshot] = {}
+        self._wallet_consensus_confirmation: dict[str, tuple[str, int]] = {}
         self._pm_client = PolymarketClient()
         self.reconciliation_ok = False
         for asset, cfg in self.asset_configs.items():
@@ -150,6 +157,7 @@ class LiveDryRunSupervisor(Observer):
         if sm is not None and sm.lean != "NEUTRAL":
             snap.smart_lean = sm.lean
             snap.smart_strength = sm.strength
+        self.latest_snapshots[asset] = snap
         return snap
 
     def _position_state(self, ticker: str) -> PositionState:
@@ -255,7 +263,10 @@ class LiveDryRunSupervisor(Observer):
         })
 
     def extra_tasks(self) -> list:
-        return [self._smart_money_loop(), self._proposal_settle_loop()]
+        tasks = [self._smart_money_loop(), self._proposal_settle_loop()]
+        if self.wallet_consensus_config.enabled:
+            tasks.append(self._wallet_consensus_loop())
+        return tasks
 
     async def _proposal_settle_loop(self) -> None:
         while True:
@@ -286,6 +297,167 @@ class LiveDryRunSupervisor(Observer):
                 )
             except Exception as exc:
                 logger.exception("failed to settle dry-run proposal %s: %s", row["proposal_id"], exc)
+
+        wallet_rows = self.db.query(
+            "SELECT p.proposal_id, p.intent, o.expected_filled, o.expected_avg_price, "
+            "o.expected_fees, s.result FROM wallet_consensus_proposals p "
+            "JOIN wallet_consensus_outcomes o ON o.proposal_id=p.proposal_id "
+            "JOIN settlements s ON s.market_ticker=p.market_ticker "
+            "WHERE o.outcome_status='pending'"
+        )
+        for row in wallet_rows:
+            try:
+                intent = OrderIntent(row["intent"])
+                side = "yes" if intent is OrderIntent.BUY_YES else "no"
+                gross, net = settle_position(
+                    side, row["expected_filled"], row["expected_avg_price"],
+                    row["expected_fees"], row["result"], DEFAULT_PAYOUT,
+                )
+                self.db.write_now_sql(
+                    "UPDATE wallet_consensus_outcomes SET outcome_status='settled', "
+                    "settlement_result=?, payout_per_contract=?, hypothetical_pnl_gross=?, "
+                    "hypothetical_pnl_net=?, settled_ts=? WHERE proposal_id=?",
+                    (row["result"], DEFAULT_PAYOUT, gross, net, time.time(), row["proposal_id"]),
+                )
+            except Exception as exc:
+                logger.exception(
+                    "failed to settle wallet-consensus proposal %s: %s",
+                    row["proposal_id"], exc,
+                )
+
+    def _wallet_consensus_proposed(self, asset: str, ticker: str) -> bool:
+        return bool(self.db.query(
+            "SELECT 1 FROM wallet_consensus_proposals "
+            "WHERE asset=? AND market_ticker=? LIMIT 1", (asset, ticker),
+        ))
+
+    def _record_wallet_consensus_observation(
+        self, asset: str, ticker: str, close_ts: int, result: dict, now: float,
+    ) -> None:
+        cfg = self.wallet_consensus_config
+        self.db.write_now("wallet_consensus_observations", {
+            "ts": now, "asset": asset, "market_ticker": ticker,
+            "condition_id": result.get("condition_id"),
+            "elapsed_s": max(0.0, now - (close_ts - 900)),
+            "top_n": cfg.top_n, "active_wallets": result.get("wallets", 0),
+            "effective_wallets": result.get("effective_wallets", 0.0),
+            "weighted_up": result.get("weighted_up", 0.0),
+            "weighted_down": result.get("weighted_down", 0.0),
+            "dominant_share": result.get("dominant_share"),
+            "lean": result.get("candidate_lean", result.get("lean", "NEUTRAL")),
+            "eligible": int(bool(result.get("eligible"))),
+            "reason": result.get("reason", "unknown"),
+        })
+
+    def _record_wallet_consensus_proposal(
+        self, asset: str, ticker: str, result: dict, snap: FeatureSnapshot,
+    ) -> None:
+        cfg = self.wallet_consensus_config
+        lean = result["candidate_lean"]
+        if lean == "UP":
+            intent = OrderIntent.BUY_YES
+            edge = snap.edge_yes_net
+            price = snap.yes_ask
+        else:
+            intent = OrderIntent.BUY_NO
+            edge = snap.edge_no_net
+            price = round(1 - snap.yes_bid, 4) if snap.yes_bid is not None else None
+        if edge is None or price is None or edge < cfg.edge_threshold:
+            return
+        signal = StrategySignal(
+            intent=intent, contracts=cfg.contracts, limit_price=price,
+            execution="taker",
+            reason=(
+                f"wallet consensus {lean} share={result['dominant_share']:.3f} "
+                f"active={result['wallets']} edge={edge:.3f}"
+            ),
+        )
+        verdict = self.risk.check(
+            asset, signal, snap, self._position_state(ticker),
+            resting_depth_at_price=self._opposing_depth(snap, intent), now=snap.ts,
+        )
+        if not verdict.approved:
+            return
+        book = self.recorders[asset].latest_book
+        if book is None:
+            return
+        fill = simulate_taker(intent, price, verdict.contracts, book)
+        proposal_id = uuid.uuid4().hex
+        status = "dry_run" if fill.filled >= 1 else "unfilled"
+        self.db.write_now("wallet_consensus_proposals", {
+            "proposal_id": proposal_id, "created_ts": snap.ts, "asset": asset,
+            "market_ticker": ticker, "condition_id": result.get("condition_id"),
+            "lean": lean, "intent": intent.value,
+            "active_wallets": result["wallets"],
+            "effective_wallets": result["effective_wallets"],
+            "dominant_share": result["dominant_share"],
+            "weighted_up": result["weighted_up"],
+            "weighted_down": result["weighted_down"],
+            "edge_net": edge, "limit_price": price,
+            "requested_contracts": verdict.contracts, "status": status,
+            "reason": signal.reason,
+            "snapshot": dump_json(snap.model_dump(mode="json")),
+        })
+        self.db.write_now("wallet_consensus_outcomes", {
+            "proposal_id": proposal_id, "recorded_ts": snap.ts,
+            "outcome_status": "pending" if fill.filled >= 1 else "unfilled",
+            "expected_filled": fill.filled, "expected_avg_price": fill.avg_price,
+            "expected_fees": fill.total_fee,
+            "fill_assumption": "one-contract IOC simulation against captured Kalshi book",
+        })
+
+    async def _wallet_consensus_loop(self) -> None:
+        cfg = self.wallet_consensus_config
+        while True:
+            await asyncio.sleep(cfg.refresh_seconds)
+            now = time.time()
+            for asset in cfg.assets:
+                recorder = self.recorders.get(asset)
+                if recorder is None or recorder.current_market is None:
+                    continue
+                market = recorder.current_market
+                if market.close_time is None:
+                    continue
+                close_ts = int(market.close_time.timestamp())
+                elapsed = now - (close_ts - 900)
+                if elapsed < 0 or elapsed > cfg.maximum_entry_seconds:
+                    continue
+                try:
+                    result = await copyable_consensus_lean(
+                        self._pm_client, self.db, asset, close_ts,
+                        top_n=cfg.top_n,
+                        maximum_entry_seconds=cfg.maximum_entry_seconds,
+                        minimum_active_wallets=cfg.minimum_active_wallets,
+                        minimum_effective_wallets=cfg.minimum_effective_wallets,
+                        minimum_dominant_share=cfg.minimum_dominant_share,
+                        observed_ts=now,
+                    )
+                except Exception as exc:
+                    logger.warning("%s: wallet consensus failed: %s", asset, exc)
+                    continue
+                self._record_wallet_consensus_observation(
+                    asset, market.ticker, close_ts, result, now,
+                )
+                key = f"{asset}:{market.ticker}"
+                if not result.get("eligible"):
+                    self._wallet_consensus_confirmation.pop(key, None)
+                    continue
+                lean = result["candidate_lean"]
+                previous_lean, previous_n = self._wallet_consensus_confirmation.get(
+                    key, (lean, 0)
+                )
+                count = previous_n + 1 if previous_lean == lean else 1
+                self._wallet_consensus_confirmation[key] = (lean, count)
+                if count < cfg.confirmation_observations:
+                    continue
+                if self._wallet_consensus_proposed(asset, market.ticker):
+                    continue
+                snap = self.latest_snapshots.get(asset)
+                if snap is None or snap.market_ticker != market.ticker:
+                    continue
+                self._record_wallet_consensus_proposal(
+                    asset, market.ticker, result, snap,
+                )
 
     async def _smart_money_loop(self) -> None:
         while True:

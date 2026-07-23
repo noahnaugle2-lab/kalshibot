@@ -385,7 +385,43 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
             for asset, sm in trader.smart.items()
             if sm.lean in ("UP", "DOWN")  # contract: NEUTRAL = absent
         }
-        return {"patterns": patterns, "wallets": wallets, "merged_leans": merged}
+        rankings = [dict(r) for r in db.query(
+            "SELECT wallet AS address, asset, rank, n, win_rate, pnl, roi, "
+            "profit_factor, avg_entry_offset_s, copy_score FROM wallet_asset_scores "
+            "WHERE qualified=1 AND rank <= 10 ORDER BY asset, rank"
+        )]
+        observations = [dict(r) for r in db.query(
+            "SELECT o.* FROM wallet_consensus_observations o JOIN ("
+            " SELECT asset, MAX(id) AS id FROM wallet_consensus_observations GROUP BY asset"
+            ") latest ON latest.id=o.id ORDER BY o.asset"
+        )]
+        outcome_rows = db.query(
+            "SELECT p.asset, o.hypothetical_pnl_net AS pnl "
+            "FROM wallet_consensus_proposals p JOIN wallet_consensus_outcomes o "
+            "ON o.proposal_id=p.proposal_id WHERE o.outcome_status='settled' "
+            "ORDER BY p.created_ts"
+        )
+        by_asset_outcomes: dict[str, list[float]] = {}
+        for row in outcome_rows:
+            by_asset_outcomes.setdefault(row["asset"], []).append(row["pnl"] or 0.0)
+        consensus_summary = []
+        for asset, pnls in sorted(by_asset_outcomes.items()):
+            gains = sum(pnl for pnl in pnls if pnl > 0)
+            losses = -sum(pnl for pnl in pnls if pnl < 0)
+            consensus_summary.append({
+                "asset": asset, "settled": len(pnls),
+                "wins": sum(pnl > 0 for pnl in pnls),
+                "net": round(sum(pnls), 4),
+                "profit_factor": round(gains / losses, 4) if losses else None,
+            })
+        return {
+            "patterns": patterns, "wallets": wallets, "merged_leans": merged,
+            "wallet_consensus": {
+                "rankings": rankings,
+                "latest_observations": observations,
+                "summary": consensus_summary,
+            },
+        }
 
     # --------------------------------------------------------- live dry run
 

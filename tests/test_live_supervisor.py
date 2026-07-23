@@ -116,6 +116,41 @@ def test_dry_run_proposal_settles_against_recorded_market_result(db):
     assert outcome["hypothetical_pnl_net"] > 0
 
 
+def test_wallet_consensus_records_independent_one_contract_dry_run(db):
+    supervisor = planner(db)
+    supervisor.wallet_consensus_config = SimpleNamespace(contracts=1, edge_threshold=0.03)
+    snap = snapshot().model_copy(update={
+        "yes_ask": 0.4, "yes_bid": 0.39,
+        "edge_yes_net": 0.06, "edge_no_net": -0.08,
+    })
+    result = {
+        "candidate_lean": "UP", "condition_id": "pm-condition",
+        "wallets": 12, "effective_wallets": 10.5,
+        "dominant_share": 0.7, "weighted_up": 7.0, "weighted_down": 3.0,
+    }
+    supervisor._record_wallet_consensus_proposal(
+        "SOL", snap.market_ticker, result, snap,
+    )
+    [proposal] = db.query("SELECT * FROM wallet_consensus_proposals")
+    assert proposal["status"] == "dry_run"
+    assert proposal["intent"] == "BUY_YES"
+    assert proposal["requested_contracts"] == 1.0
+    [outcome] = db.query("SELECT * FROM wallet_consensus_outcomes")
+    assert outcome["outcome_status"] == "pending"
+    assert outcome["expected_filled"] == 1.0
+    assert db.query("SELECT * FROM live_orders") == []
+
+    db.write_now("settlements", {
+        "market_ticker": snap.market_ticker, "asset": "SOL", "result": "yes",
+        "floor_strike": None, "expiration_value": None, "open_ts": None,
+        "close_ts": 200.0, "recorded_ts": 200.0, "consistent": None,
+    })
+    supervisor._settle_pending_proposals()
+    [settled] = db.query("SELECT * FROM wallet_consensus_outcomes")
+    assert settled["outcome_status"] == "settled"
+    assert settled["hypothetical_pnl_net"] > 0
+
+
 async def test_startup_reconciliation_audits_ok_and_mismatch(db):
     supervisor = LiveDryRunSupervisor.__new__(LiveDryRunSupervisor)
     supervisor.db = db

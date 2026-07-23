@@ -5,6 +5,9 @@ import pytest
 from kalshibot.persistence.db import Database
 from kalshibot.smartmoney.polymarket import (
     PMTrade,
+    PolymarketMarket,
+    copyable_consensus_lean,
+    refresh_wallet_asset_scores,
     refresh_wallet_records,
     updown_slug,
     wallet_windows,
@@ -109,4 +112,78 @@ def test_refresh_wallet_records_qualification(tmp_path):
     assert rows["0xaaa"]["ci_low"] > 0.5
     assert rows["0xbbb"]["qualified"] == 0
     assert rows["0xccc"]["qualified"] == 0  # the late-window sweeper trap
+    db.close()
+
+
+def test_copyability_ranking_rewards_profitable_payoff_not_hit_rate(tmp_path):
+    db = Database(tmp_path / "copyable.db")
+    now = 10_000.0
+    for i in range(120):
+        # Exactly 50% causal accuracy, but winners make twice what losers lose.
+        db.write_now("wallet_window_results", {
+            "wallet": "0xpayoff", "asset": "SOL", "condition_id": f"p-{i}",
+            "close_ts": int(now - 120 + i), "lean": "UP", "won": int(i % 2 == 0),
+            "pnl": 2.0 if i % 2 == 0 else -1.0, "stake": 10.0,
+            "entry_offset_s": 90.0, "lean_600": "UP", "won_600": int(i % 2 == 0),
+            "computed_ts": now,
+        })
+        # High hit rate and positive PnL, but too late to copy in a 15m market.
+        db.write_now("wallet_window_results", {
+            "wallet": "0xlate", "asset": "SOL", "condition_id": f"l-{i}",
+            "close_ts": int(now - 120 + i), "lean": "UP", "won": 1,
+            "pnl": 0.01, "stake": 10.0, "entry_offset_s": 700.0,
+            "lean_600": "UP", "won_600": 1, "computed_ts": now,
+        })
+    qualified = refresh_wallet_asset_scores(db, now=now)
+    assert qualified == 1
+    payoff = db.query(
+        "SELECT * FROM wallet_asset_scores WHERE wallet='0xpayoff' AND asset='SOL'"
+    )[0]
+    late = db.query(
+        "SELECT * FROM wallet_asset_scores WHERE wallet='0xlate' AND asset='SOL'"
+    )[0]
+    assert payoff["qualified"] == 1 and payoff["rank"] == 1
+    assert payoff["win_rate"] == pytest.approx(0.5)
+    assert payoff["profit_factor"] == pytest.approx(2.0)
+    assert late["qualified"] == 0
+    db.close()
+
+
+async def test_copyable_consensus_requires_diversified_early_majority(tmp_path):
+    db = Database(tmp_path / "consensus.db")
+    for rank in range(1, 11):
+        db.write_now("wallet_asset_scores", {
+            "wallet": f"0x{rank}", "asset": "SOL", "rank": rank,
+            "n": 200, "wins": 120, "win_rate": 0.6, "pnl": 1000 - rank,
+            "stake": 10_000, "roi": 0.1, "profit_factor": 1.5,
+            "max_drawdown": None, "avg_entry_offset_s": 60,
+            "copy_score": 10 - rank / 10, "qualified": 1, "updated_ts": T_OPEN,
+        })
+
+    trades = [
+        trade(f"0x{rank}", "BUY", "Up" if rank <= 7 else "Down", 0.5, 10, 60)
+        for rank in range(1, 11)
+    ]
+
+    class Client:
+        async def get_updown_market(self, asset, close_ts):
+            return PolymarketMarket(
+                condition_id="condition", slug="sol-updown", asset=asset,
+                close_ts=close_ts, closed=False, winner=None,
+            )
+
+        async def get_trades(self, condition_id):
+            return trades
+
+    result = await copyable_consensus_lean(
+        Client(), db, "SOL", int(T_OPEN + 900), minimum_active_wallets=8,
+        minimum_effective_wallets=8, minimum_dominant_share=0.65,
+        observed_ts=T_OPEN + 90,
+    )
+    assert result["eligible"] is True
+    assert result["lean"] == "UP"
+    assert result["wallets"] == 10
+    assert result["effective_wallets"] >= 8
+    assert result["dominant_share"] >= 0.65
+    assert db.query("SELECT COUNT(*) AS n FROM polymarket_wallet_trade_events")[0]["n"] == 10
     db.close()

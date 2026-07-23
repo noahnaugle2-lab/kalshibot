@@ -20,6 +20,7 @@ from kalshibot.persistence.db import Database
 from kalshibot.smartmoney.polymarket import (
     MIN_QUALIFYING_WINDOWS,
     PolymarketClient,
+    refresh_wallet_records,
     scan_asset,
 )
 
@@ -49,6 +50,7 @@ async def main() -> None:
             s = await scan_asset(client, db, asset, start, end)
             print(f"{asset:<6} {s['windows']:>7} {s['resolved']:>8} "
                   f"{s['missing']:>7} {s['wallet_rows']:>11}")
+        refresh_wallet_records(db)
     finally:
         await client.close()
 

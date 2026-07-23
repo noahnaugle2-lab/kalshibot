@@ -36,7 +36,10 @@ from kalshibot.persistence.db import Database
 logger = logging.getLogger(__name__)
 
 # High-volume, append-only tables keyed by a `ts` epoch-seconds column.
-ARCHIVABLE_TABLES = ("trade_tape", "signals", "book_snapshots", "spot_ticks")
+ARCHIVABLE_TABLES = (
+    "trade_tape", "signals", "book_snapshots", "spot_ticks",
+    "polymarket_wallet_trade_events", "wallet_consensus_observations",
+)
 DEFAULT_RETENTION_DAYS = 30
 
 

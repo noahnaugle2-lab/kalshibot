@@ -21,7 +21,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -494,6 +494,111 @@ CREATE TABLE IF NOT EXISTS smart_wallets (
     updated_ts REAL NOT NULL
 );
 
+-- Per-asset wallet rankings for the causal wallet-consensus experiment.
+-- This intentionally does not reuse smart_wallets. The legacy table ranks
+-- directional repeat winners, while this table ranks copyable profitability.
+CREATE TABLE IF NOT EXISTS wallet_asset_scores (
+    wallet TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    rank INTEGER,
+    n INTEGER NOT NULL,
+    wins INTEGER NOT NULL,
+    win_rate REAL,
+    pnl REAL NOT NULL,
+    stake REAL NOT NULL,
+    roi REAL,
+    profit_factor REAL,
+    max_drawdown REAL,
+    avg_entry_offset_s REAL,
+    copy_score REAL NOT NULL,
+    qualified INTEGER NOT NULL DEFAULT 0,
+    updated_ts REAL NOT NULL,
+    PRIMARY KEY (wallet, asset)
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_asset_rank
+ON wallet_asset_scores(asset, qualified, rank);
+
+-- First-seen observations of tracked wallet trades. INSERT OR IGNORE keeps
+-- observed_ts causal even though the public endpoint returns historical rows
+-- again on every poll.
+CREATE TABLE IF NOT EXISTS polymarket_wallet_trade_events (
+    id INTEGER PRIMARY KEY,
+    event_id TEXT NOT NULL UNIQUE,
+    condition_id TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    wallet TEXT NOT NULL,
+    side TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    price REAL NOT NULL,
+    size REAL NOT NULL,
+    ts REAL NOT NULL,
+    observed_ts REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pm_wallet_trade_market
+ON polymarket_wallet_trade_events(condition_id, observed_ts);
+CREATE INDEX IF NOT EXISTS idx_pm_wallet_trade_ts
+ON polymarket_wallet_trade_events(ts);
+
+CREATE TABLE IF NOT EXISTS wallet_consensus_observations (
+    id INTEGER PRIMARY KEY,
+    ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    condition_id TEXT,
+    elapsed_s REAL NOT NULL,
+    top_n INTEGER NOT NULL,
+    active_wallets INTEGER NOT NULL,
+    effective_wallets REAL NOT NULL,
+    weighted_up REAL NOT NULL,
+    weighted_down REAL NOT NULL,
+    dominant_share REAL,
+    lean TEXT NOT NULL,
+    eligible INTEGER NOT NULL DEFAULT 0,
+    reason TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_consensus_obs_market
+ON wallet_consensus_observations(asset, market_ticker, ts);
+
+CREATE TABLE IF NOT EXISTS wallet_consensus_proposals (
+    proposal_id TEXT PRIMARY KEY,
+    created_ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    condition_id TEXT,
+    lean TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    active_wallets INTEGER NOT NULL,
+    effective_wallets REAL NOT NULL,
+    dominant_share REAL NOT NULL,
+    weighted_up REAL NOT NULL,
+    weighted_down REAL NOT NULL,
+    edge_net REAL NOT NULL,
+    limit_price REAL NOT NULL,
+    requested_contracts REAL NOT NULL,
+    status TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    snapshot TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_consensus_proposal_market
+ON wallet_consensus_proposals(asset, market_ticker);
+
+CREATE TABLE IF NOT EXISTS wallet_consensus_outcomes (
+    proposal_id TEXT PRIMARY KEY,
+    recorded_ts REAL NOT NULL,
+    outcome_status TEXT NOT NULL,
+    expected_filled REAL NOT NULL DEFAULT 0,
+    expected_avg_price REAL,
+    expected_fees REAL NOT NULL DEFAULT 0,
+    fill_assumption TEXT NOT NULL,
+    settlement_result TEXT,
+    payout_per_contract REAL,
+    hypothetical_pnl_gross REAL,
+    hypothetical_pnl_net REAL,
+    settled_ts REAL
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_consensus_outcome_status
+ON wallet_consensus_outcomes(outcome_status, recorded_ts);
+
 CREATE TABLE IF NOT EXISTS webauthn_credentials (
     credential_id TEXT PRIMARY KEY,   -- base64url of the raw credential id
     public_key TEXT NOT NULL,         -- base64url COSE public key
@@ -571,6 +676,42 @@ class Database:
         with self._write_lock:
             self._conn.execute(sql, params)
             self._conn.commit()
+
+    def write_many_ignore(self, table: str, rows: list[dict[str, Any]]) -> int:
+        """Insert a homogeneous batch without replacing first-seen rows."""
+        if not rows:
+            return 0
+        cols = list(rows[0])
+        if any(list(row) != cols for row in rows):
+            raise ValueError("write_many_ignore rows must have identical columns")
+        names = ", ".join(cols)
+        placeholders = ", ".join("?" for _ in cols)
+        with self._write_lock:
+            before = self._conn.total_changes
+            self._conn.executemany(
+                f"INSERT OR IGNORE INTO {table} ({names}) VALUES ({placeholders})",
+                [tuple(row[col] for col in cols) for row in rows],
+            )
+            self._conn.commit()
+            return self._conn.total_changes - before
+
+    def write_many(self, table: str, rows: list[dict[str, Any]]) -> int:
+        """Upsert a homogeneous batch in one transaction."""
+        if not rows:
+            return 0
+        cols = list(rows[0])
+        if any(list(row) != cols for row in rows):
+            raise ValueError("write_many rows must have identical columns")
+        names = ", ".join(cols)
+        placeholders = ", ".join("?" for _ in cols)
+        with self._write_lock:
+            before = self._conn.total_changes
+            self._conn.executemany(
+                f"INSERT OR REPLACE INTO {table} ({names}) VALUES ({placeholders})",
+                [tuple(row[col] for col in cols) for row in rows],
+            )
+            self._conn.commit()
+            return self._conn.total_changes - before
 
     def execute_write(self, sql: str, params: tuple = ()) -> int:
         """Synchronous write that returns rows affected (for batched deletes)."""

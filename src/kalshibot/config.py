@@ -105,6 +105,27 @@ class AssetConfig(BaseModel):
     ai_enabled: bool = False  # per-asset Claude decision layer (A/B vs baseline)
 
 
+class WalletConsensusConfig(BaseModel):
+    """Read-only wallet-consensus proposal experiment.
+
+    This config is consumed only by LiveDryRunSupervisor. It cannot enable an
+    exchange order path.
+    """
+
+    enabled: bool = False
+    assets: list[str] = Field(default_factory=lambda: ["SOL", "XRP"])
+    top_n: int = Field(default=100, ge=10, le=500)
+    minimum_history: int = Field(default=100, ge=20)
+    maximum_entry_seconds: int = Field(default=300, ge=30, le=600)
+    minimum_active_wallets: int = Field(default=8, ge=3)
+    minimum_effective_wallets: float = Field(default=8.0, ge=2.0)
+    minimum_dominant_share: float = Field(default=0.65, gt=0.5, le=1.0)
+    confirmation_observations: int = Field(default=2, ge=1, le=10)
+    edge_threshold: float = Field(default=0.03, ge=0.0, le=1.0)
+    contracts: float = Field(default=1.0, ge=1.0, le=10.0)
+    refresh_seconds: float = Field(default=30.0, ge=10.0, le=300.0)
+
+
 def load_asset_configs(path: Path | None = None) -> dict[str, AssetConfig]:
     """Load per-asset config, applying `defaults` under each asset entry."""
     path = path or PROJECT_ROOT / "config" / "assets.yaml"
@@ -115,6 +136,16 @@ def load_asset_configs(path: Path | None = None) -> dict[str, AssetConfig]:
         merged = {**defaults, **(overrides or {}), "symbol": symbol}
         configs[symbol] = AssetConfig.model_validate(merged)
     return configs
+
+
+def load_wallet_consensus(path: Path | None = None) -> WalletConsensusConfig:
+    path = path or PROJECT_ROOT / "config" / "assets.yaml"
+    raw = yaml.safe_load(path.read_text())
+    config = WalletConsensusConfig.model_validate(raw.get("wallet_consensus") or {})
+    invalid = sorted(set(config.assets) - set(TARGET_ASSETS))
+    if invalid:
+        raise ValueError(f"invalid wallet_consensus assets: {invalid}")
+    return config
 
 
 def load_risk(path: Path | None = None):

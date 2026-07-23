@@ -617,6 +617,18 @@ export function getSmartMoney(): SmartMoneyResponse {
       { address: '0x3c9d…77b2', win_rate: 0.58, ci_low: 0.49, ci_high: 0.66, n_resolved: 120, profit_usd: 12800, avg_entry_seconds_after_open: 150, current_positions: [] },
     ],
     merged_leans: merged,
+    wallet_consensus: {
+      rankings: [],
+      latest_observations: [
+        { id: 1, ts: nowSec(), asset: 'SOL', market_ticker: 'KXSOL15M-MOCK', elapsed_s: 120,
+          active_wallets: 12, effective_wallets: 10.4, dominant_share: 0.69,
+          lean: 'UP', eligible: 1, reason: 'eligible' },
+        { id: 2, ts: nowSec(), asset: 'XRP', market_ticker: 'KXXRP15M-MOCK', elapsed_s: 120,
+          active_wallets: 6, effective_wallets: 5.7, dominant_share: 0.62,
+          lean: 'DOWN', eligible: 0, reason: 'active wallets 6 < 8' },
+      ],
+      summary: [],
+    },
   };
 }
 
