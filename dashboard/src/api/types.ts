@@ -236,6 +236,28 @@ export interface SmartMoneyResponse {
       net: number;
       profit_factor: number | null;
     }[];
+    counterfactual_summary: {
+      asset: Asset;
+      settled: number;
+      wins: number;
+      net: number;
+      profit_factor: number | null;
+    }[];
+    latest_decisions: {
+      decision_id: string;
+      evaluated_ts: number;
+      asset: Asset;
+      market_ticker: string;
+      arm: 'wallet_only' | 'consensus_plus_edge';
+      status: string;
+      reason: string;
+      lean: Lean;
+      active_wallets: number;
+      effective_wallets: number;
+      dominant_share: number;
+      edge_net: number | null;
+      limit_price: number | null;
+    }[];
   };
 }
 

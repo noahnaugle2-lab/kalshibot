@@ -21,7 +21,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -598,6 +598,72 @@ CREATE TABLE IF NOT EXISTS wallet_consensus_outcomes (
 );
 CREATE INDEX IF NOT EXISTS idx_wallet_consensus_outcome_status
 ON wallet_consensus_outcomes(outcome_status, recorded_ts);
+
+-- Pure wallet-follow arm. This deliberately ignores the existing model-edge
+-- gate so we can measure whether public-wallet consensus has independent
+-- predictive value. It is proposal-only and is never consumed by LiveTrader.
+CREATE TABLE IF NOT EXISTS wallet_consensus_counterfactuals (
+    proposal_id TEXT PRIMARY KEY,
+    created_ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    condition_id TEXT,
+    lean TEXT NOT NULL,
+    intent TEXT NOT NULL,
+    active_wallets INTEGER NOT NULL,
+    effective_wallets REAL NOT NULL,
+    dominant_share REAL NOT NULL,
+    weighted_up REAL NOT NULL,
+    weighted_down REAL NOT NULL,
+    model_edge_net REAL,
+    limit_price REAL NOT NULL,
+    requested_contracts REAL NOT NULL,
+    status TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    snapshot TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_consensus_cf_market
+ON wallet_consensus_counterfactuals(asset, market_ticker);
+
+CREATE TABLE IF NOT EXISTS wallet_consensus_counterfactual_outcomes (
+    proposal_id TEXT PRIMARY KEY,
+    recorded_ts REAL NOT NULL,
+    outcome_status TEXT NOT NULL,
+    expected_filled REAL NOT NULL DEFAULT 0,
+    expected_avg_price REAL,
+    expected_fees REAL NOT NULL DEFAULT 0,
+    fill_assumption TEXT NOT NULL,
+    settlement_result TEXT,
+    payout_per_contract REAL,
+    hypothetical_pnl_gross REAL,
+    hypothetical_pnl_net REAL,
+    settled_ts REAL
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_consensus_cf_outcome_status
+ON wallet_consensus_counterfactual_outcomes(outcome_status, recorded_ts);
+
+-- One durable decision row per market and arm. Re-evaluation updates this row,
+-- so the dashboard explains whether consensus was blocked by edge, risk, book,
+-- fill, or successfully proposed without producing high-frequency log noise.
+CREATE TABLE IF NOT EXISTS wallet_consensus_decisions (
+    decision_id TEXT PRIMARY KEY,
+    evaluated_ts REAL NOT NULL,
+    asset TEXT NOT NULL,
+    market_ticker TEXT NOT NULL,
+    condition_id TEXT,
+    arm TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    lean TEXT NOT NULL,
+    active_wallets INTEGER NOT NULL,
+    effective_wallets REAL NOT NULL,
+    dominant_share REAL NOT NULL,
+    edge_net REAL,
+    limit_price REAL,
+    UNIQUE(asset, market_ticker, arm)
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_consensus_decision_ts
+ON wallet_consensus_decisions(evaluated_ts, arm, status);
 
 CREATE TABLE IF NOT EXISTS webauthn_credentials (
     credential_id TEXT PRIMARY KEY,   -- base64url of the raw credential id

@@ -122,6 +122,7 @@ class WalletConsensusConfig(BaseModel):
     minimum_dominant_share: float = Field(default=0.65, gt=0.5, le=1.0)
     confirmation_observations: int = Field(default=2, ge=1, le=10)
     edge_threshold: float = Field(default=0.03, ge=0.0, le=1.0)
+    maximum_price: float = Field(default=0.90, gt=0.0, lt=1.0)
     contracts: float = Field(default=1.0, ge=1.0, le=10.0)
     refresh_seconds: float = Field(default=30.0, ge=10.0, le=300.0)
 

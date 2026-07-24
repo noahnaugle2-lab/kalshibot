@@ -325,11 +325,72 @@ class LiveDryRunSupervisor(Observer):
                     row["proposal_id"], exc,
                 )
 
+        counterfactual_rows = self.db.query(
+            "SELECT p.proposal_id, p.intent, o.expected_filled, o.expected_avg_price, "
+            "o.expected_fees, s.result FROM wallet_consensus_counterfactuals p "
+            "JOIN wallet_consensus_counterfactual_outcomes o "
+            "ON o.proposal_id=p.proposal_id "
+            "JOIN settlements s ON s.market_ticker=p.market_ticker "
+            "WHERE o.outcome_status='pending'"
+        )
+        for row in counterfactual_rows:
+            try:
+                intent = OrderIntent(row["intent"])
+                side = "yes" if intent is OrderIntent.BUY_YES else "no"
+                gross, net = settle_position(
+                    side, row["expected_filled"], row["expected_avg_price"],
+                    row["expected_fees"], row["result"], DEFAULT_PAYOUT,
+                )
+                self.db.write_now_sql(
+                    "UPDATE wallet_consensus_counterfactual_outcomes "
+                    "SET outcome_status='settled', settlement_result=?, "
+                    "payout_per_contract=?, hypothetical_pnl_gross=?, "
+                    "hypothetical_pnl_net=?, settled_ts=? WHERE proposal_id=?",
+                    (row["result"], DEFAULT_PAYOUT, gross, net, time.time(), row["proposal_id"]),
+                )
+            except Exception as exc:
+                logger.exception(
+                    "failed to settle wallet-only counterfactual %s: %s",
+                    row["proposal_id"], exc,
+                )
+
     def _wallet_consensus_proposed(self, asset: str, ticker: str) -> bool:
         return bool(self.db.query(
             "SELECT 1 FROM wallet_consensus_proposals "
             "WHERE asset=? AND market_ticker=? LIMIT 1", (asset, ticker),
         ))
+
+    def _wallet_counterfactual_proposed(self, asset: str, ticker: str) -> bool:
+        return bool(self.db.query(
+            "SELECT 1 FROM wallet_consensus_counterfactuals "
+            "WHERE asset=? AND market_ticker=? LIMIT 1", (asset, ticker),
+        ))
+
+    def _record_wallet_consensus_decision(
+        self, asset: str, ticker: str, result: dict, *, arm: str,
+        status: str, reason: str, edge: float | None, price: float | None,
+        evaluated_ts: float,
+    ) -> None:
+        self.db.write_now("wallet_consensus_decisions", {
+            "decision_id": f"{asset}:{ticker}:{arm}",
+            "evaluated_ts": evaluated_ts, "asset": asset,
+            "market_ticker": ticker, "condition_id": result.get("condition_id"),
+            "arm": arm, "status": status, "reason": reason,
+            "lean": result["candidate_lean"],
+            "active_wallets": result["wallets"],
+            "effective_wallets": result["effective_wallets"],
+            "dominant_share": result["dominant_share"],
+            "edge_net": edge, "limit_price": price,
+        })
+
+    @staticmethod
+    def _wallet_consensus_quote(
+        result: dict, snap: FeatureSnapshot,
+    ) -> tuple[OrderIntent, float | None, float | None]:
+        if result["candidate_lean"] == "UP":
+            return OrderIntent.BUY_YES, snap.edge_yes_net, snap.yes_ask
+        price = round(1 - snap.yes_bid, 4) if snap.yes_bid is not None else None
+        return OrderIntent.BUY_NO, snap.edge_no_net, price
 
     def _record_wallet_consensus_observation(
         self, asset: str, ticker: str, close_ts: int, result: dict, now: float,
@@ -354,15 +415,18 @@ class LiveDryRunSupervisor(Observer):
     ) -> None:
         cfg = self.wallet_consensus_config
         lean = result["candidate_lean"]
-        if lean == "UP":
-            intent = OrderIntent.BUY_YES
-            edge = snap.edge_yes_net
-            price = snap.yes_ask
-        else:
-            intent = OrderIntent.BUY_NO
-            edge = snap.edge_no_net
-            price = round(1 - snap.yes_bid, 4) if snap.yes_bid is not None else None
+        intent, edge, price = self._wallet_consensus_quote(result, snap)
         if edge is None or price is None or edge < cfg.edge_threshold:
+            self._record_wallet_consensus_decision(
+                asset, ticker, result, arm="consensus_plus_edge",
+                status="edge_veto",
+                reason=(
+                    "missing quote or model edge"
+                    if edge is None or price is None
+                    else f"edge {edge:.4f} < {cfg.edge_threshold:.4f}"
+                ),
+                edge=edge, price=price, evaluated_ts=snap.ts,
+            )
             return
         signal = StrategySignal(
             intent=intent, contracts=cfg.contracts, limit_price=price,
@@ -377,9 +441,19 @@ class LiveDryRunSupervisor(Observer):
             resting_depth_at_price=self._opposing_depth(snap, intent), now=snap.ts,
         )
         if not verdict.approved:
+            self._record_wallet_consensus_decision(
+                asset, ticker, result, arm="consensus_plus_edge",
+                status="risk_veto", reason=verdict.reason,
+                edge=edge, price=price, evaluated_ts=snap.ts,
+            )
             return
         book = self.recorders[asset].latest_book
         if book is None:
+            self._record_wallet_consensus_decision(
+                asset, ticker, result, arm="consensus_plus_edge",
+                status="no_book", reason="no captured Kalshi order book",
+                edge=edge, price=price, evaluated_ts=snap.ts,
+            )
             return
         fill = simulate_taker(intent, price, verdict.contracts, book)
         proposal_id = uuid.uuid4().hex
@@ -405,6 +479,80 @@ class LiveDryRunSupervisor(Observer):
             "expected_fees": fill.total_fee,
             "fill_assumption": "one-contract IOC simulation against captured Kalshi book",
         })
+        self._record_wallet_consensus_decision(
+            asset, ticker, result, arm="consensus_plus_edge",
+            status="proposed" if fill.filled >= 1 else "unfilled",
+            reason=signal.reason if fill.filled >= 1 else "captured book did not fill IOC",
+            edge=edge, price=price, evaluated_ts=snap.ts,
+        )
+
+    def _record_wallet_only_counterfactual(
+        self, asset: str, ticker: str, result: dict, snap: FeatureSnapshot,
+    ) -> None:
+        """Score wallet consensus without requiring agreement from our model.
+
+        This path writes only dedicated counterfactual tables and never calls
+        RiskManager or an order-capable client, so paused assets remain safe to
+        study.
+        """
+        cfg = self.wallet_consensus_config
+        lean = result["candidate_lean"]
+        intent, edge, price = self._wallet_consensus_quote(result, snap)
+        if price is None:
+            self._record_wallet_consensus_decision(
+                asset, ticker, result, arm="wallet_only", status="no_quote",
+                reason="missing Kalshi quote", edge=edge, price=price,
+                evaluated_ts=snap.ts,
+            )
+            return
+        if price > cfg.maximum_price:
+            self._record_wallet_consensus_decision(
+                asset, ticker, result, arm="wallet_only", status="price_veto",
+                reason=f"price {price:.4f} > {cfg.maximum_price:.4f}",
+                edge=edge, price=price, evaluated_ts=snap.ts,
+            )
+            return
+        book = self.recorders[asset].latest_book
+        if book is None:
+            self._record_wallet_consensus_decision(
+                asset, ticker, result, arm="wallet_only", status="no_book",
+                reason="no captured Kalshi order book", edge=edge, price=price,
+                evaluated_ts=snap.ts,
+            )
+            return
+        fill = simulate_taker(intent, price, cfg.contracts, book)
+        proposal_id = uuid.uuid4().hex
+        status = "dry_run" if fill.filled >= 1 else "unfilled"
+        reason = (
+            f"wallet-only {lean} share={result['dominant_share']:.3f} "
+            f"active={result['wallets']} model_edge={edge}"
+        )
+        self.db.write_now("wallet_consensus_counterfactuals", {
+            "proposal_id": proposal_id, "created_ts": snap.ts, "asset": asset,
+            "market_ticker": ticker, "condition_id": result.get("condition_id"),
+            "lean": lean, "intent": intent.value,
+            "active_wallets": result["wallets"],
+            "effective_wallets": result["effective_wallets"],
+            "dominant_share": result["dominant_share"],
+            "weighted_up": result["weighted_up"],
+            "weighted_down": result["weighted_down"],
+            "model_edge_net": edge, "limit_price": price,
+            "requested_contracts": cfg.contracts, "status": status,
+            "reason": reason, "snapshot": dump_json(snap.model_dump(mode="json")),
+        })
+        self.db.write_now("wallet_consensus_counterfactual_outcomes", {
+            "proposal_id": proposal_id, "recorded_ts": snap.ts,
+            "outcome_status": "pending" if fill.filled >= 1 else "unfilled",
+            "expected_filled": fill.filled, "expected_avg_price": fill.avg_price,
+            "expected_fees": fill.total_fee,
+            "fill_assumption": "wallet-only one-contract IOC against captured Kalshi book",
+        })
+        self._record_wallet_consensus_decision(
+            asset, ticker, result, arm="wallet_only",
+            status="proposed" if fill.filled >= 1 else "unfilled",
+            reason=reason if fill.filled >= 1 else "captured book did not fill IOC",
+            edge=edge, price=price, evaluated_ts=snap.ts,
+        )
 
     async def _wallet_consensus_loop(self) -> None:
         cfg = self.wallet_consensus_config
@@ -450,14 +598,17 @@ class LiveDryRunSupervisor(Observer):
                 self._wallet_consensus_confirmation[key] = (lean, count)
                 if count < cfg.confirmation_observations:
                     continue
-                if self._wallet_consensus_proposed(asset, market.ticker):
-                    continue
                 snap = self.latest_snapshots.get(asset)
                 if snap is None or snap.market_ticker != market.ticker:
                     continue
-                self._record_wallet_consensus_proposal(
-                    asset, market.ticker, result, snap,
-                )
+                if not self._wallet_counterfactual_proposed(asset, market.ticker):
+                    self._record_wallet_only_counterfactual(
+                        asset, market.ticker, result, snap,
+                    )
+                if not self._wallet_consensus_proposed(asset, market.ticker):
+                    self._record_wallet_consensus_proposal(
+                        asset, market.ticker, result, snap,
+                    )
 
     async def _smart_money_loop(self) -> None:
         while True:

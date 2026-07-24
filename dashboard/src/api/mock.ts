@@ -628,6 +628,8 @@ export function getSmartMoney(): SmartMoneyResponse {
           lean: 'DOWN', eligible: 0, reason: 'active wallets 6 < 8' },
       ],
       summary: [],
+      counterfactual_summary: [],
+      latest_decisions: [],
     },
   };
 }

@@ -58,6 +58,7 @@ wallet_consensus:
   minimum_dominant_share: 0.65
   confirmation_observations: 2
   edge_threshold: 0.03
+  maximum_price: 0.90
   contracts: 1
   refresh_seconds: 30
 
@@ -112,6 +113,8 @@ assets:
     strategy: thin_book_maker
     strategy_params: {min_spread_cents: 3.0, model_margin: 0.03, contracts: 10}
   XRP:
+    paused: true   # paused 2026-07-24: current dry-run -$2.45/contract, PF 0.47;
+                   # wallet-only counterfactual continues collecting independently
     spot_symbol_binance: XRPUSDT
     spot_symbol_coinbase: XRP-USD
     strategy: cross_asset_lead_lag

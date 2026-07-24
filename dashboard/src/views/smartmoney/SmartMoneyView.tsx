@@ -89,18 +89,21 @@ export function SmartMoneyView() {
           WALLET CONSENSUS · READ-ONLY DRY RUN
         </div>
         <div className="px-3.5 py-2 text-[9px] text-dim border-b border-linesub">
-          Top copyable wallets per asset · first 300 seconds only · 8 effective wallets · 65% weighted agreement · 3¢ model edge
+          Top copyable wallets · first 300 seconds · 8 effective wallets · 65% agreement · wallet-only vs 3¢ model-edge arms
         </div>
         <div className="overflow-x-auto">
           <div className="min-w-[800px]">
-            <div className="grid grid-cols-[70px_90px_100px_100px_110px_1fr] gap-2.5 px-3.5 py-2 text-faint tracking-[0.1em] text-[8px] border-b border-linesub">
+            <div className="grid grid-cols-[60px_70px_90px_90px_100px_100px_1fr] gap-2.5 px-3.5 py-2 text-faint tracking-[0.1em] text-[8px] border-b border-linesub">
               <span>ASSET</span><span>LEAN</span><span className="text-right">ACTIVE</span>
-              <span className="text-right">CONSENSUS</span><span className="text-right">SETTLED · NET</span><span>STATUS</span>
+              <span className="text-right">CONSENSUS</span><span className="text-right">EDGE ARM</span>
+              <span className="text-right">WALLET ONLY</span><span>LATEST GATE</span>
             </div>
             {(data?.wallet_consensus.latest_observations ?? []).map((o) => {
               const summary = data?.wallet_consensus.summary.find((s) => s.asset === o.asset);
+              const walletSummary = data?.wallet_consensus.counterfactual_summary.find((s) => s.asset === o.asset);
+              const edgeDecision = data?.wallet_consensus.latest_decisions.find((d) => d.asset === o.asset && d.arm === 'consensus_plus_edge');
               return (
-                <div key={o.asset} className="grid grid-cols-[70px_90px_100px_100px_110px_1fr] gap-2.5 px-3.5 py-2.5 border-b border-linesub text-[10px] items-center">
+                <div key={o.asset} className="grid grid-cols-[60px_70px_90px_90px_100px_100px_1fr] gap-2.5 px-3.5 py-2.5 border-b border-linesub text-[10px] items-center">
                   <span className="font-extrabold text-fg">{o.asset}</span>
                   <LeanGlyph lean={o.lean === 'NEUTRAL' ? null : o.lean} />
                   <span className="text-right text-dim">{o.active_wallets} · {o.effective_wallets.toFixed(1)} eff</span>
@@ -110,7 +113,14 @@ export function SmartMoneyView() {
                       {(summary?.net ?? 0) >= 0 ? '+' : '−'}${Math.abs(summary?.net ?? 0).toFixed(2)}
                     </span>
                   </span>
-                  <span className={o.eligible ? 'text-green' : 'text-faint'}>{o.reason}</span>
+                  <span className="text-right text-dim">
+                    {walletSummary?.settled ?? 0} · <span style={{ color: (walletSummary?.net ?? 0) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                      {(walletSummary?.net ?? 0) >= 0 ? '+' : '−'}${Math.abs(walletSummary?.net ?? 0).toFixed(2)}
+                    </span>
+                  </span>
+                  <span className={edgeDecision?.status === 'proposed' ? 'text-green' : 'text-faint'}>
+                    {edgeDecision ? `${edgeDecision.status}: ${edgeDecision.reason}` : o.reason}
+                  </span>
                 </div>
               );
             })}

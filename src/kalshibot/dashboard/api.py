@@ -414,12 +414,41 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
                 "net": round(sum(pnls), 4),
                 "profit_factor": round(gains / losses, 4) if losses else None,
             })
+        counterfactual_rows = db.query(
+            "SELECT p.asset, o.hypothetical_pnl_net AS pnl "
+            "FROM wallet_consensus_counterfactuals p "
+            "JOIN wallet_consensus_counterfactual_outcomes o "
+            "ON o.proposal_id=p.proposal_id WHERE o.outcome_status='settled' "
+            "ORDER BY p.created_ts"
+        )
+        counterfactual_by_asset: dict[str, list[float]] = {}
+        for row in counterfactual_rows:
+            counterfactual_by_asset.setdefault(row["asset"], []).append(row["pnl"] or 0.0)
+        counterfactual_summary = []
+        for asset, pnls in sorted(counterfactual_by_asset.items()):
+            gains = sum(pnl for pnl in pnls if pnl > 0)
+            losses = -sum(pnl for pnl in pnls if pnl < 0)
+            counterfactual_summary.append({
+                "asset": asset, "settled": len(pnls),
+                "wins": sum(pnl > 0 for pnl in pnls),
+                "net": round(sum(pnls), 4),
+                "profit_factor": round(gains / losses, 4) if losses else None,
+            })
+        decisions = [dict(r) for r in db.query(
+            "SELECT d.* FROM wallet_consensus_decisions d JOIN ("
+            " SELECT asset, arm, MAX(evaluated_ts) AS evaluated_ts "
+            " FROM wallet_consensus_decisions GROUP BY asset, arm"
+            ") latest ON latest.asset=d.asset AND latest.arm=d.arm "
+            "AND latest.evaluated_ts=d.evaluated_ts ORDER BY d.asset, d.arm"
+        )]
         return {
             "patterns": patterns, "wallets": wallets, "merged_leans": merged,
             "wallet_consensus": {
                 "rankings": rankings,
                 "latest_observations": observations,
                 "summary": consensus_summary,
+                "counterfactual_summary": counterfactual_summary,
+                "latest_decisions": decisions,
             },
         }
 
