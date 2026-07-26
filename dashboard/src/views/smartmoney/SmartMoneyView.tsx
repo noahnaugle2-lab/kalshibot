@@ -131,6 +131,66 @@ export function SmartMoneyView() {
         </div>
       </div>
 
+      {/* Strategy fingerprints and cross-venue delayed-copy evidence */}
+      <div className="bg-panel border border-line rounded-md overflow-hidden">
+        <div className="px-3.5 py-2.5 border-b border-line text-[10px] font-extrabold tracking-[0.1em] text-fg">
+          WALLET STRATEGY INTELLIGENCE · READ-ONLY
+        </div>
+        <div className="px-3.5 py-2 text-[9px] text-dim border-b border-linesub flex gap-5 flex-wrap">
+          <span>Monthly leaders: <b className="text-fg">{data?.strategy_intelligence.counts.monthly_leaders ?? 0}</b></span>
+          <span>Fingerprints: <b className="text-fg">{data?.strategy_intelligence.counts.fingerprints ?? 0}</b></span>
+          <span>Delayed replays: <b className="text-fg">{data?.strategy_intelligence.counts.replays ?? 0}</b></span>
+          <span>Ranks copied Kalshi P&amp;L after 2s, 5s, 10s, and 30s, not public source profit.</span>
+        </div>
+        <div className="overflow-x-auto">
+          <div className="min-w-[960px]">
+            <div className="grid grid-cols-[42px_130px_55px_185px_60px_60px_70px_80px_75px_1fr] gap-2.5 px-3.5 py-2 text-faint tracking-[0.1em] text-[8px] border-b border-linesub">
+              <span>RANK</span><span>WALLET</span><span>ASSET</span><span>FINGERPRINT</span>
+              <span className="text-right">DELAY</span><span className="text-right">FILLED</span>
+              <span className="text-right">WINS</span><span className="text-right">COPY NET</span>
+              <span className="text-right">PF</span><span>INTERPRETATION</span>
+            </div>
+            {(data?.strategy_intelligence.copyability ?? []).slice(0, 12).map((row, index) => (
+              <div
+                key={`${row.address}-${row.asset}-${row.delay_seconds}`}
+                className="grid grid-cols-[42px_130px_55px_185px_60px_60px_70px_80px_75px_1fr] gap-2.5 px-3.5 py-2.5 border-b border-linesub text-[9px] items-center"
+              >
+                <span className="font-extrabold text-fg">{index + 1}</span>
+                <a
+                  href={`https://polymarket.com/profile/${row.address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-indigosoft hover:underline inline-flex items-center gap-1"
+                >
+                  {row.address.slice(0, 6)}…{row.address.slice(-4)}
+                  <ExternalLink size={8} />
+                </a>
+                <span className="font-extrabold text-fg">{row.asset}</span>
+                <span className="text-dim">{row.strategy_type.replace(/_/g, ' ')}</span>
+                <span className="text-right text-dim">{row.delay_seconds}s</span>
+                <span className="text-right text-dim">{row.filled}/{row.signals}</span>
+                <span className="text-right text-dim">{row.wins}</span>
+                <span
+                  className="text-right font-extrabold"
+                  style={{ color: row.net >= 0 ? 'var(--green)' : 'var(--red)' }}
+                >
+                  {row.net >= 0 ? '+' : '−'}${Math.abs(row.net).toFixed(2)}
+                </span>
+                <span className="text-right text-dim">{row.profit_factor == null ? '—' : row.profit_factor.toFixed(2)}</span>
+                <span className="text-faint">
+                  {row.filled < 20 ? 'low sample' : row.net > 0 ? 'copyable candidate' : 'source edge did not transfer'}
+                </span>
+              </div>
+            ))}
+            {(data?.strategy_intelligence.copyability ?? []).length === 0 && (
+              <div className="px-3.5 py-4 text-faint text-[9px]">
+                awaiting leaderboard trade sequences and matched Kalshi books
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Layer A — flow patterns */}
       <div className="bg-panel border border-line rounded-md overflow-hidden">
         <div className="px-3.5 py-2.5 border-b border-line text-[10px] font-extrabold tracking-[0.1em] text-fg">

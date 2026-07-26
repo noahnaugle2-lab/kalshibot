@@ -259,6 +259,66 @@ export interface SmartMoneyResponse {
       limit_price: number | null;
     }[];
   };
+  strategy_intelligence: {
+    counts: {
+      monthly_leaders: number;
+      fingerprints: number;
+      replays: number;
+    };
+    monthly_leaderboard: {
+      rank: number;
+      address: string;
+      username: string | null;
+      pnl: number;
+      volume: number;
+      snapshot_ts: number;
+    }[];
+    fingerprints: {
+      address: string;
+      asset: Asset;
+      strategy_type: string;
+      markets: number;
+      trades: number;
+      both_outcomes_rate: number;
+      round_trip_rate: number;
+      avg_trades_per_market: number;
+      avg_first_entry_s: number | null;
+      early_entry_rate: number;
+      dominant_outcome_share: number;
+      source_pnl: number;
+      source_roi: number | null;
+      source_profit_factor: number | null;
+      leaderboard_best_rank: number | null;
+      leaderboard_month_pnl: number | null;
+      leaderboard_month_volume: number | null;
+      updated_ts: number;
+    }[];
+    copyability: {
+      address: string;
+      asset: Asset;
+      delay_seconds: number;
+      strategy_type: string;
+      signals: number;
+      filled: number;
+      wins: number;
+      net: number;
+      profit_factor: number | null;
+      max_drawdown: number;
+      avg_entry_price: number | null;
+      fill_rate: number;
+      copy_score: number;
+      rank: number | null;
+      updated_ts: number;
+    }[];
+    replay_summary: {
+      delay_seconds: number;
+      status: string;
+      n: number;
+      settled: number;
+      wins: number;
+      net: number;
+    }[];
+  };
 }
 
 // ---- GET /api/live-dry-run ----

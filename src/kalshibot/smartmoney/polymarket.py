@@ -171,6 +171,32 @@ class PolymarketClient:
             offset += TRADES_PAGE
             await asyncio.sleep(REQUEST_DELAY_S)
 
+    async def get_leaderboard(
+        self,
+        *,
+        category: str = "CRYPTO",
+        period: str = "MONTH",
+        limit: int = 100,
+    ) -> list[dict]:
+        """Return the public trader leaderboard for universe discovery."""
+        rows: list[dict] = []
+        for offset in range(0, limit, 50):
+            page_limit = min(50, limit - offset)
+            r = await self._http.get(
+                f"{DATA_BASE}/v1/leaderboard",
+                params={
+                    "category": category, "timePeriod": period,
+                    "orderBy": "PNL", "limit": page_limit, "offset": offset,
+                },
+            )
+            r.raise_for_status()
+            page = r.json() or []
+            rows.extend(page)
+            if len(page) < page_limit:
+                break
+            await asyncio.sleep(REQUEST_DELAY_S)
+        return rows
+
 
 # --------------------------------------------------------------- analytics
 
@@ -228,6 +254,8 @@ async def scan_asset(
     asset: str,
     start_close_ts: int,
     end_close_ts: int,
+    *,
+    tracked_wallets: set[str] | None = None,
 ) -> dict[str, int]:
     """Scan resolved updown windows in [start, end], skipping already-scanned."""
     stats = {"windows": 0, "resolved": 0, "wallet_rows": 0, "missing": 0}
@@ -254,6 +282,17 @@ async def scan_asset(
         except httpx.HTTPError as exc:
             logger.warning("%s: trades fetch failed @%s: %s", asset, close_ts, exc)
             continue
+        if tracked_wallets:
+            observed_ts = time.time()
+            tracked = [t for t in trades if t.wallet in tracked_wallets]
+            db.write_many_ignore("polymarket_wallet_trade_events", [{
+                "event_id": _trade_event_id(market.condition_id, trade),
+                "condition_id": market.condition_id, "asset": asset,
+                "wallet": trade.wallet, "side": trade.side,
+                "outcome": trade.outcome, "price": trade.price,
+                "size": trade.size, "ts": trade.ts,
+                "observed_ts": observed_ts,
+            } for trade in tracked])
         window_open = close_ts - WINDOW_SECONDS
         rows = wallet_windows(trades, market.winner, window_open)
         for w in rows:

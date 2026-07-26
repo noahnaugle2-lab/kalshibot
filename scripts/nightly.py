@@ -30,6 +30,11 @@ from kalshibot.evaluation.scorecard import build_scorecards, persist_scorecards,
 from kalshibot.persistence.db import Database
 from kalshibot.persistence.retention import run_retention
 from kalshibot.smartmoney.flow import mine_new_windows
+from kalshibot.smartmoney.intelligence import (
+    current_leaderboard_wallets,
+    refresh_leaderboard_snapshots,
+    refresh_wallet_intelligence_analytics,
+)
 from kalshibot.smartmoney.polymarket import (
     PolymarketClient,
     refresh_wallet_records,
@@ -72,21 +77,40 @@ async def main() -> int:
             now = int(time.time())
             end = (now // WINDOW) * WINDOW - WINDOW
             start = end - int(26 * 3600)
+            try:
+                leaderboard_rows, tracked_wallets = (
+                    await refresh_leaderboard_snapshots(client, db)
+                )
+            except Exception as exc:  # noqa: BLE001
+                logging.getLogger("nightly").warning(
+                    "leaderboard refresh failed, using last snapshot: %s", exc,
+                )
+                tracked_wallets = current_leaderboard_wallets(db)
+                leaderboard_rows = 0
             total_rows = 0
             for asset in ASSETS:
-                stats = await scan_asset(client, db, asset, start, end)
+                stats = await scan_asset(
+                    client, db, asset, start, end,
+                    tracked_wallets=tracked_wallets,
+                )
                 total_rows += stats["wallet_rows"]
             refresh_wallet_records(db)
+            intelligence = refresh_wallet_intelligence_analytics(db)
             qualified = db.query(
                 "SELECT COUNT(*) AS c FROM smart_wallets WHERE qualified = 1"
             )[0]["c"]
-            return total_rows, qualified
+            return total_rows, qualified, leaderboard_rows, intelligence
         finally:
             await client.close()
 
     try:
-        total_rows, qualified = await _polymarket()
-        lines.append(f"[3/5] polymarket: {total_rows} wallet rows, {qualified} qualified winners")
+        total_rows, qualified, leaderboard_rows, intelligence = await _polymarket()
+        lines.append(
+            f"[3/5] polymarket: {total_rows} wallet rows, "
+            f"{qualified} qualified winners, {leaderboard_rows} leaderboard rows, "
+            f"{intelligence.fingerprints} strategy fingerprints, "
+            f"{intelligence.replays} delayed-copy replays"
+        )
     except Exception as exc:  # noqa: BLE001
         logging.getLogger("nightly").error("polymarket step failed: %s", exc)
         failures.append(f"3/5 polymarket: {exc}")

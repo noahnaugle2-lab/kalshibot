@@ -96,6 +96,16 @@ def test_live_handles_no_market(client):
     assert row["smart_money"]["lean"] == "NEUTRAL"
 
 
+def test_smartmoney_exposes_read_only_strategy_intelligence(client):
+    body = client.get("/api/smartmoney", headers=auth()).json()
+    intelligence = body["strategy_intelligence"]
+    assert intelligence["counts"] == {
+        "monthly_leaders": 0, "fingerprints": 0, "replays": 0,
+    }
+    assert intelligence["monthly_leaderboard"] == []
+    assert intelligence["copyability"] == []
+
+
 def test_live_dry_run_is_read_only_and_omits_exchange_raw_payloads(client, trader):
     trader.db.write_now("live_reconciliations", {
         "run_ts": 100.0, "status": "ok", "external_positions": '{"secret":"never"}',

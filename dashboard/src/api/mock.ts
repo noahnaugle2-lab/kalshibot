@@ -631,6 +631,32 @@ export function getSmartMoney(): SmartMoneyResponse {
       counterfactual_summary: [],
       latest_decisions: [],
     },
+    strategy_intelligence: {
+      counts: { monthly_leaders: 100, fingerprints: 42, replays: 168 },
+      monthly_leaderboard: [
+        { rank: 1, address: '0x12ab000000000000000000000000000000009f3c', username: 'leader-one',
+          pnl: 918000, volume: 1595000, snapshot_ts: nowSec() },
+      ],
+      fingerprints: [
+        { address: '0x12ab000000000000000000000000000000009f3c', asset: 'SOL',
+          strategy_type: 'directional_accumulator', markets: 42, trades: 130,
+          both_outcomes_rate: 0.08, round_trip_rate: 0.12, avg_trades_per_market: 3.1,
+          avg_first_entry_s: 44, early_entry_rate: 0.91, dominant_outcome_share: 0.92,
+          source_pnl: 4820, source_roi: 0.14, source_profit_factor: 1.8,
+          leaderboard_best_rank: 1, leaderboard_month_pnl: 918000,
+          leaderboard_month_volume: 1595000, updated_ts: nowSec() },
+      ],
+      copyability: [
+        { address: '0x12ab000000000000000000000000000000009f3c', asset: 'SOL',
+          delay_seconds: 5, strategy_type: 'directional_accumulator',
+          signals: 42, filled: 35, wins: 21, net: 3.82, profit_factor: 1.42,
+          max_drawdown: 1.65, avg_entry_price: 0.54, fill_rate: 0.83,
+          copy_score: 0.24, rank: 1, updated_ts: nowSec() },
+      ],
+      replay_summary: [
+        { delay_seconds: 5, status: 'settled', n: 35, settled: 35, wins: 21, net: 3.82 },
+      ],
+    },
   };
 }
 

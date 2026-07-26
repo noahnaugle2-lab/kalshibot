@@ -441,6 +441,55 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
             ") latest ON latest.asset=d.asset AND latest.arm=d.arm "
             "AND latest.evaluated_ts=d.evaluated_ts ORDER BY d.asset, d.arm"
         )]
+        leaderboard = [dict(r) for r in db.query(
+            "SELECT rank,wallet AS address,username,pnl,volume,snapshot_ts "
+            "FROM polymarket_leaderboard_snapshots WHERE category='CRYPTO' "
+            "AND period='MONTH' AND snapshot_ts=("
+            " SELECT MAX(snapshot_ts) FROM polymarket_leaderboard_snapshots "
+            " WHERE category='CRYPTO' AND period='MONTH') "
+            "ORDER BY rank LIMIT 20"
+        )]
+        fingerprints = [dict(r) for r in db.query(
+            "SELECT wallet AS address,asset,strategy_type,markets,trades,"
+            "both_outcomes_rate,round_trip_rate,avg_trades_per_market,"
+            "avg_first_entry_s,early_entry_rate,dominant_outcome_share,"
+            "source_pnl,source_roi,source_profit_factor,"
+            "leaderboard_best_rank,leaderboard_month_pnl,"
+            "leaderboard_month_volume,updated_ts "
+            "FROM wallet_strategy_fingerprints "
+            "ORDER BY CASE WHEN leaderboard_best_rank IS NULL THEN 1 ELSE 0 END,"
+            "leaderboard_best_rank,source_pnl DESC LIMIT 50"
+        )]
+        copyability = [dict(r) for r in db.query(
+            "SELECT wallet AS address,asset,delay_seconds,strategy_type,"
+            "signals,filled,wins,net,profit_factor,max_drawdown,"
+            "avg_entry_price,fill_rate,copy_score,rank,updated_ts "
+            "FROM wallet_copyability_scores "
+            "ORDER BY copy_score DESC,filled DESC LIMIT 50"
+        )]
+        copy_replay_summary = [dict(r) for r in db.query(
+            "SELECT delay_seconds,status,COUNT(*) AS n,"
+            "SUM(CASE WHEN pnl_net IS NOT NULL THEN 1 ELSE 0 END) AS settled,"
+            "SUM(CASE WHEN pnl_net>0 THEN 1 ELSE 0 END) AS wins,"
+            "ROUND(SUM(COALESCE(pnl_net,0)),4) AS net "
+            "FROM wallet_copy_replays GROUP BY delay_seconds,status "
+            "ORDER BY delay_seconds,status"
+        )]
+        strategy_counts = {
+            "monthly_leaders": db.query(
+                "SELECT COUNT(*) AS n FROM polymarket_leaderboard_snapshots "
+                "WHERE category='CRYPTO' AND period='MONTH' AND snapshot_ts=("
+                " SELECT MAX(snapshot_ts) "
+                " FROM polymarket_leaderboard_snapshots "
+                " WHERE category='CRYPTO' AND period='MONTH')"
+            )[0]["n"],
+            "fingerprints": db.query(
+                "SELECT COUNT(*) AS n FROM wallet_strategy_fingerprints"
+            )[0]["n"],
+            "replays": db.query(
+                "SELECT COUNT(*) AS n FROM wallet_copy_replays"
+            )[0]["n"],
+        }
         return {
             "patterns": patterns, "wallets": wallets, "merged_leans": merged,
             "wallet_consensus": {
@@ -449,6 +498,13 @@ def create_app(trader) -> FastAPI:  # trader: kalshibot.trader.ShadowTrader
                 "summary": consensus_summary,
                 "counterfactual_summary": counterfactual_summary,
                 "latest_decisions": decisions,
+            },
+            "strategy_intelligence": {
+                "counts": strategy_counts,
+                "monthly_leaderboard": leaderboard,
+                "fingerprints": fingerprints,
+                "copyability": copyability,
+                "replay_summary": copy_replay_summary,
             },
         }
 

@@ -21,7 +21,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -538,6 +538,112 @@ CREATE INDEX IF NOT EXISTS idx_pm_wallet_trade_market
 ON polymarket_wallet_trade_events(condition_id, observed_ts);
 CREATE INDEX IF NOT EXISTS idx_pm_wallet_trade_ts
 ON polymarket_wallet_trade_events(ts);
+CREATE INDEX IF NOT EXISTS idx_pm_wallet_trade_wallet
+ON polymarket_wallet_trade_events(wallet, asset, condition_id);
+
+-- Point-in-time public leaderboard membership. Keeping snapshots, rather than
+-- only the latest ranks, lets research detect leaderboard churn and avoids
+-- accidentally using a future rank in historical analysis.
+CREATE TABLE IF NOT EXISTS polymarket_leaderboard_snapshots (
+    id INTEGER PRIMARY KEY,
+    snapshot_ts REAL NOT NULL,
+    category TEXT NOT NULL,
+    period TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    wallet TEXT NOT NULL,
+    username TEXT,
+    pnl REAL NOT NULL,
+    volume REAL NOT NULL,
+    raw TEXT NOT NULL,
+    UNIQUE(snapshot_ts, category, period, wallet)
+);
+CREATE INDEX IF NOT EXISTS idx_pm_leaderboard_wallet
+ON polymarket_leaderboard_snapshots(wallet, snapshot_ts);
+CREATE INDEX IF NOT EXISTS idx_pm_leaderboard_period_rank
+ON polymarket_leaderboard_snapshots(category, period, snapshot_ts, rank);
+
+-- Latest behavioral fingerprint for each wallet/asset pair. This classifies
+-- how profit is created instead of reducing every wallet to one direction.
+CREATE TABLE IF NOT EXISTS wallet_strategy_fingerprints (
+    wallet TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    strategy_type TEXT NOT NULL,
+    markets INTEGER NOT NULL,
+    trades INTEGER NOT NULL,
+    buys INTEGER NOT NULL,
+    sells INTEGER NOT NULL,
+    both_outcomes_rate REAL NOT NULL,
+    round_trip_rate REAL NOT NULL,
+    avg_trades_per_market REAL NOT NULL,
+    avg_first_entry_s REAL,
+    avg_last_trade_s REAL,
+    early_entry_rate REAL NOT NULL,
+    dominant_outcome_share REAL NOT NULL,
+    source_pnl REAL NOT NULL,
+    source_stake REAL NOT NULL,
+    source_roi REAL,
+    source_profit_factor REAL,
+    leaderboard_best_rank INTEGER,
+    leaderboard_month_pnl REAL,
+    leaderboard_month_volume REAL,
+    updated_ts REAL NOT NULL,
+    PRIMARY KEY (wallet, asset)
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_fingerprint_type
+ON wallet_strategy_fingerprints(strategy_type, asset, source_pnl);
+
+-- One-contract, taker-style delayed copy of a wallet's first actionable trade
+-- into the matching Kalshi market. These rows are research-only and have no
+-- path to the funded executor.
+CREATE TABLE IF NOT EXISTS wallet_copy_replays (
+    replay_id TEXT PRIMARY KEY,
+    computed_ts REAL NOT NULL,
+    wallet TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    condition_id TEXT NOT NULL,
+    market_ticker TEXT,
+    source_trade_ts REAL NOT NULL,
+    source_observed_ts REAL,
+    source_outcome TEXT NOT NULL,
+    source_price REAL NOT NULL,
+    source_size REAL NOT NULL,
+    delay_seconds INTEGER NOT NULL,
+    target_ts REAL NOT NULL,
+    book_ts REAL,
+    intent TEXT NOT NULL,
+    kalshi_price REAL,
+    status TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    settlement_result TEXT,
+    fees REAL NOT NULL DEFAULT 0,
+    pnl_net REAL,
+    UNIQUE(wallet, condition_id, delay_seconds)
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_copy_replay_wallet
+ON wallet_copy_replays(wallet, asset, delay_seconds, status);
+CREATE INDEX IF NOT EXISTS idx_wallet_copy_replay_market
+ON wallet_copy_replays(market_ticker, delay_seconds);
+
+CREATE TABLE IF NOT EXISTS wallet_copyability_scores (
+    wallet TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    delay_seconds INTEGER NOT NULL,
+    strategy_type TEXT NOT NULL,
+    signals INTEGER NOT NULL,
+    filled INTEGER NOT NULL,
+    wins INTEGER NOT NULL,
+    net REAL NOT NULL,
+    profit_factor REAL,
+    max_drawdown REAL NOT NULL,
+    avg_entry_price REAL,
+    fill_rate REAL NOT NULL,
+    copy_score REAL NOT NULL,
+    rank INTEGER,
+    updated_ts REAL NOT NULL,
+    PRIMARY KEY (wallet, asset, delay_seconds)
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_copyability_rank
+ON wallet_copyability_scores(asset, delay_seconds, rank);
 
 CREATE TABLE IF NOT EXISTS wallet_consensus_observations (
     id INTEGER PRIMARY KEY,
