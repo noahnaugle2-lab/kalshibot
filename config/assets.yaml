@@ -58,7 +58,9 @@ wallet_consensus:
   minimum_dominant_share: 0.65
   confirmation_observations: 2
   edge_threshold: 0.03
-  maximum_price: 0.90
+  # Phase 2 entry-discipline test, started 2026-07-26 after the first four
+  # settled wallet-only fills returned -$0.67 at prices from 0.51 to 0.75.
+  maximum_price: 0.60
   contracts: 1
   refresh_seconds: 30
 
