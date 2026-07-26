@@ -139,3 +139,32 @@ def test_delayed_copy_replay_uses_future_kalshi_book_and_scores(tmp_path):
     assert score["net"] == pytest.approx(.58)
     assert score["rank"] == 1
     db.close()
+
+
+def test_copy_score_shrinks_lucky_tiny_samples(tmp_path):
+    db = Database(tmp_path / "shrink.db")
+
+    def replay(wallet, index, pnl):
+        db.write_now("wallet_copy_replays", {
+            "replay_id": f"{wallet}-{index}", "computed_ts": CLOSE,
+            "wallet": wallet, "asset": "SOL", "condition_id": f"c-{wallet}-{index}",
+            "market_ticker": f"M-{index}", "source_trade_ts": OPEN,
+            "source_observed_ts": OPEN + 1, "source_outcome": "UP",
+            "source_price": .4, "source_size": 10, "delay_seconds": 5,
+            "target_ts": OPEN + 5, "book_ts": OPEN + 5.2,
+            "intent": "BUY_YES", "kalshi_price": .4, "status": "settled",
+            "reason": "test", "settlement_result": "yes", "fees": .02,
+            "pnl_net": pnl,
+        })
+
+    replay("0xlucky", 0, .60)
+    for i in range(10):
+        replay("0xrepeatable", i, .10)
+    refresh_copyability_scores(db, now=CLOSE)
+    rows = {
+        row["wallet"]: row
+        for row in db.query("SELECT * FROM wallet_copyability_scores")
+    }
+    assert rows["0xrepeatable"]["rank"] == 1
+    assert rows["0xrepeatable"]["copy_score"] > rows["0xlucky"]["copy_score"]
+    db.close()

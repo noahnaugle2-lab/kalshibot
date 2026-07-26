@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import sqlite3
 import time
 from collections import defaultdict
@@ -469,11 +468,9 @@ def refresh_copyability_scores(
         net = sum(pnls)
         # Sample-aware and drawdown-aware. Negative copy PnL stays negative
         # regardless of the source wallet's public leaderboard rank.
+        evidence_weight = len(settled) / (len(settled) + 20.0)
         copy_score = (
-            (net / max(1, len(settled)))
-            * math.sqrt(len(settled))
-            * fill_rate
-            / (1.0 + drawdown)
+            net * evidence_weight * fill_rate / (1.0 + drawdown)
         )
         item = {
             "wallet": wallet, "asset": asset, "delay_seconds": delay,
